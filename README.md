@@ -235,9 +235,9 @@ Handles loading and managing OpenGL textures from images or NumPy arrays.
 
 Features:
 
-    •	Load textures into OpenGL.
-    •	Bind and unbind textures for rendering.
-    •	Delete textures when no longer needed.
+- Load textures into OpenGL.
+- Bind and unbind textures for rendering.
+- Delete textures when no longer needed.
 
 Example:
 
