@@ -1,32 +1,39 @@
-TachyPy
+# TachyPy
 
-TachyPy is a Python package designed for creating high-performance visual stimuli using OpenGL and Pygame. It provides a set of tools for screen management, texture handling, drawing visual elements, handling user responses, and generating psychophysical stimuli. TachyPy is ideal for researchers and developers working on psychophysics experiments, visualizations, or any application requiring precise control over visual presentations and user inputs.
+**TachyPy** is a Python package designed for creating high-performance visual stimuli using OpenGL and Pygame. It provides a set of tools for screen management, texture handling, drawing visual elements, handling user responses, and generating psychophysical stimuli. TachyPy is ideal for researchers and developers working on psychophysics experiments, visualizations, or any application requiring precise control over visual presentations and user inputs.
 
-Table of Contents
+---
 
-	•	Features
-	•	Installation
-	•	Dependencies
-	•	Usage
-	•	Example
-	•	Modules
-	•	Screen
-	•	Texture
-	•	Visuals
-	•	Responses
-	•	Psychophysics
-	•	Contributing
-	•	License
+## Table of Contents
 
-Features
+- [Features](#features)
+- [Installation](#installation)
+- [Dependencies](#dependencies)
+- [Usage](#usage)
+  - [Example](#example)
+- [Modules](#modules)
+  - [Screen](#screen)
+  - [Texture](#texture)
+  - [Visuals](#visuals)
+  - [Responses](#responses)
+  - [Psychophysics](#psychophysics)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
+- [Acknowledgments](#acknowledgments)
 
-	•	Screen Management: Initialize and manage screens with OpenGL contexts, handle multiple monitors, and control refresh rates.
-	•	Texture Handling: Load and manage textures efficiently using OpenGL.
-	•	Drawing Utilities: Functions to draw rectangles, lines, fixation crosses, and stimuli on the screen.
-	•	User Input Handling: Capture keyboard and mouse events, including reaction times, without directly interacting with Pygame.
-	•	Psychophysical Stimuli Generation: Create stimuli such as Gabor patches with customizable parameters.
+---
 
-Installation
+## Features
+
+- **Screen Management**: Initialize and manage screens with OpenGL contexts, handle multiple monitors, and control refresh rates.
+- **Texture Handling**: Load and manage textures efficiently using OpenGL.
+- **Drawing Utilities**: Functions to draw rectangles, lines, fixation crosses, and stimuli on the screen.
+- **User Input Handling**: Capture keyboard and mouse events, including reaction times, without directly interacting with Pygame.
+- **Psychophysical Stimuli Generation**: Create stimuli such as Gabor patches with customizable parameters.
+
+
+## Installation
 
 You can install TachyPy directly from GitHub:
 
@@ -42,13 +49,13 @@ cd tachypy
 pip install -e .
 ```
 
-Dependencies
+## Dependencies
 
-	•	Python 3.6 or higher
-	•	NumPy (>=1.18.0)
-	•	Pygame (>=2.0.0)
-	•	PyOpenGL (>=3.1.0)
-	•	screeninfo (>=0.6.0)
+- **Python 3.6** or higher
+- **NumPy** (>=1.18.0)
+- **Pygame** (>=2.0.0)
+- **PyOpenGL** (>=3.1.0)
+- **screeninfo** (>=0.6.0)
 
 You can install the dependencies using:
 
@@ -56,11 +63,11 @@ You can install the dependencies using:
 pip install -r requirements.txt
 ```
 
-Usage
+## Usage
 
 Here’s a quick example demonstrating how to use TachyPy to display a moving Gabor patch with a fixation cross and handle user input.
 
-Example
+## Example
 
 ```python
 from tachypy import (
@@ -194,9 +201,9 @@ if __name__ == "__main__":
     main()
 ```
 
-Modules
+## Modules
 
-Screen
+## Screen
 
 Class: Screen
 
@@ -204,10 +211,10 @@ Manages screen initialization, handling multiple monitors, setting up OpenGL con
 
 Features:
 
-	•	Initialize fullscreen or windowed mode.
-	•	Control vsync and desired refresh rates.
-	•	Provide methods to flip the display and tick the clock.
-	•	Test flip intervals to measure actual frame rates.
+- Initialize fullscreen or windowed mode.
+- Control vsync and desired refresh rates.
+- Provide methods to flip the display and tick the clock.
+- Test flip intervals to measure actual frame rates.
 
 Example:
 
@@ -220,17 +227,17 @@ screen.flip()
 ```
 
 
-Texture
+## Texture
 
-Class: Texture
+**Class**: Texture
 
 Handles loading and managing OpenGL textures from images or NumPy arrays.
 
 Features:
 
-	•	Load textures into OpenGL.
-	•	Bind and unbind textures for rendering.
-	•	Delete textures when no longer needed.
+    •	Load textures into OpenGL.
+    •	Bind and unbind textures for rendering.
+    •	Delete textures when no longer needed.
 
 Example:
 
@@ -246,26 +253,52 @@ texture.bind()
 texture.unbind()
 ```
 
-Contributing
+## Visuals
+
+Provides utility functions for drawing basic shapes and stimuli.
+
+**Functions**:
+
+- draw_rectangle(a_rect, fill=True, thickness=1.0, color=(255, 255, 255)): Draws a rectangle.
+- draw_line(pts1, pts2, thickness=1.0, color=(255, 0, 0)): Draws a line between two points.
+- draw_fixation_cross(center_pts, half_width, half_height, thickness=1.0, color=(255, 0, 0)): Draws a fixation cross.
+- center_rect_on_point(a_rect, a_point): Centers a rectangle on a given point.
+- draw_stimulus(texture, a_rect): Draws a texture on the screen within the specified rectangle.
+
+## Responses
+
+**Class**: ResponseHandler
+
+Handles user input events, including keyboard and mouse interactions, without exposing Pygame directly.
+
+Features:
+
+- Capture key presses and releases with timestamps.
+- Detect mouse clicks and positions.
+- Check if specific keys are pressed or released.
+- Determine if the application should quit.
+
+
+## Contributing
 
 Contributions are welcome! If you’d like to contribute to TachyPy, please follow these steps:
 
-	1.	Fork the repository on GitHub.
-	2.	Clone your forked repository.
-	3.	Create a new branch for your feature or bugfix.
-	4.	Make your changes and commit them with descriptive messages.
-	5.	Push your changes to your fork.
-	6.	Submit a pull request to the main repository.
+    1.	Fork the repository on GitHub.
+    2.	Clone your forked repository.
+    3.	Create a new branch for your feature or bugfix.
+    4.	Make your changes and commit them with descriptive messages.
+    5.	Push your changes to your fork.
+    6.	Submit a pull request to the main repository.
 
 Please ensure that your code follows the project’s coding standards and includes appropriate tests.
 
-License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 Acknowledgments
 
-	•	Pygame for the multimedia library.
-	•	PyOpenGL for the OpenGL bindings.
-	•	NumPy for numerical computations.
-	•	screeninfo for monitor information.
+- Pygame for the multimedia library.
+- PyOpenGL for the OpenGL bindings.
+- NumPy for numerical computations.
+- screeninfo for monitor information.
