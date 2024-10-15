@@ -278,17 +278,16 @@ Features:
 - Check if specific keys are pressed or released.
 - Determine if the application should quit.
 
-
 ## Contributing
 
-Contributions are welcome! If you’d like to contribute to TachyPy, please follow these steps:
+Contributions are welcome! If you'd like to contribute to TachyPy, please follow these steps:
 
-    1.	Fork the repository on GitHub.
-    2.	Clone your forked repository.
-    3.	Create a new branch for your feature or bugfix.
-    4.	Make your changes and commit them with descriptive messages.
-    5.	Push your changes to your fork.
-    6.	Submit a pull request to the main repository.
+1. **Fork** the repository on GitHub.
+2. **Clone** your forked repository.
+3. **Create a new branch** for your feature or bugfix.
+4. **Make your changes** and commit them with descriptive messages.
+5. **Push** your changes to your fork.
+6. **Submit a pull request** to the main repository.
 
 Please ensure that your code follows the project’s coding standards and includes appropriate tests.
 
