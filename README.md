@@ -70,34 +70,62 @@ Here’s a quick example demonstrating how to use TachyPy to display a moving Ga
 ## Example
 
 ```python
+import os
+import time
+import numpy as np
 from tachypy import (
+    Audio,
     Screen,
     Texture,
-    draw_rectangle,
-    draw_fixation_cross,
-    draw_stimulus,
+    Circle,
+    FixationCross,
     center_rect_on_point,
     ResponseHandler,
     fabriquer_gabor,
     noisy_bit_dithering
 )
-from OpenGL.GL import glDisable, GL_BLEND, GL_ALPHA_TEST
-import numpy as np
-import time
-
 
 def main():
-    # Initialize Screen
-    screen = Screen(screen_number=1)
+    # which screen should we draw to?
+    screen_number = 1
+    screen = Screen(screen_number=screen_number, fullscreen=True, desired_refresh_rate=60)
+
+    # get some relevant screen properties
+    center_x = screen.width//2 
+    center_y = screen.height//2 
+
+    # let's initialise our FixationCross
+    fixation_cross = FixationCross(center=[center_x, center_y], half_width=50, half_height=50, thickness=2.0, color=(255, 0, 0))  # Red cross
+
+    # let's add a white circle
+    circle = Circle(center=(320, 240), radius=50, fill=True, color=(0, 255, 0))  # Green circle
+
+    # let's start our audio player
+    audio_player = Audio(sample_rate=44100, channels=1)
+
+    # make a sinewave for the sound
+    duration = 1.0  # seconds
+    frequency = 440.0  # Hz (A4 note)
+    sample_rate = 44100
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    amplitude = 0.5
+    waveform = amplitude * np.sin(2 * np.pi * frequency * t).astype(np.float32)
+
+
+    # set the screen's background colour to gray
+    screen.fill([128, 128, 128])
+
+    # flip the screen to make the background color visible
+    screen.flip()
+
+    # check for the screen's actual refresh rate
+    frame_rate_actual = 1/screen.test_flip_intervals(num_frames=100)
+    print(frame_rate_actual)
 
     # Initialize ResponseHandler
     response_handler = ResponseHandler()
 
-    # Test flip intervals
-    frame_rate_actual = screen.test_flip_intervals()
-    print(f"Actual frame rate: {frame_rate_actual}")
-
-    # Generate stimuli
+    # create a moving Gabor patch animation
     nx = 750
     frequency_per_im = 10
     speed_in_cycles_per_s = 3
@@ -107,66 +135,48 @@ def main():
     film = []
     for ii in range(nb_frames_per_cycle):
         phase = 2 * np.pi * ii / nb_frames_per_cycle
-        gabor = fabriquer_gabor(
-            nx,
-            frequence=frequency_per_im,
-            phase=phase,
-            angle=np.pi/4,
-            ecart_type=0.2
-        )
+        gabor = fabriquer_gabor(nx, frequence=frequency_per_im, phase=phase, angle=np.pi/4, ecart_type=0.2)
 
         gabor = rms_target / np.std(gabor) * (gabor - 0.5) + 0.5
         gabor_dithered = noisy_bit_dithering(gabor)
-
-        gabor_rgb = np.stack((gabor_dithered,) * 3, axis=-1)
-        gabor_rgb[:, :, 2] = 255 - gabor_rgb[:, :, 2]
+        
+        gabor_rgb = np.stack((gabor_dithered,)*3, axis=-1) # could be done in the OpenGL functions, like the colors
+        # gabor_rgb[:,:,2] = 255 - gabor_rgb[:,:,2]
         film.append(gabor_rgb)
 
-    # Load textures
+
+    # Load stimuli (example: red, green, blue squares)
     textures = [Texture(stimulus) for stimulus in film]
+
+    # define the position in which the Texture will be mapped.
+    dest_rect = center_rect_on_point([0, 0, nx-100, nx-100], [center_x, center_y])
 
     # Main loop
     running = True
-    frame_intervals = []
-    last_frame_time = time.perf_counter()
 
-    center_x = screen.width // 2
-    center_y = screen.height // 2
-    dest_rect = center_rect_on_point([0, 0, nx - 1, nx - 1], [center_x, center_y])
+    # Track frame timestamps to measure interval consistency
+    frame_intervals = []
+
+    # flip an initial screen and set initial time
+    start_time = screen.flip()
 
     while running:
-        for texture in textures:
-            # Calculate the time since the last frame
-            current_time = time.perf_counter()
-            frame_interval = current_time - last_frame_time
-            frame_intervals.append(frame_interval)
-            last_frame_time = current_time
+        for current_trial, texture in enumerate(textures):
 
-            # Use OpenGL to clear the screen
-            screen.fill((128, 128, 128))  # Fill with a gray color
+            screen.fill([128, 128, 128])
 
-            # Disable blending and alpha testing for the rectangle
-            glDisable(GL_BLEND)
-            glDisable(GL_ALPHA_TEST)
+            # draw a circle
+            circle.draw()
 
-            # Drawing functions
-            draw_rectangle(
-                [100, 100, 1000, 800],
-                fill=False,
-                thickness=1.0,
-                color=(0.0, 255.0, 0.0)
-            )
-            draw_stimulus(texture, dest_rect)
-            draw_fixation_cross(
-                [center_x, center_y],
-                50,
-                50,
-                thickness=3.0,
-                color=(255.0, 0.0, 0.0)
-            )
+            # draw the texture
+            texture.draw(dest_rect)
 
-            screen.flip()
-            screen.tick()
+            # draw the fixation cross
+            fixation_cross.draw()
+
+            time_stamp = screen.flip()
+
+            frame_intervals.append(screen.get_flip_interval()) 
 
             # Handle events
             response_handler.get_events()
@@ -174,18 +184,14 @@ def main():
                 running = False
                 break
 
-            # Example: Check if the spacebar was pressed
-            if response_handler.is_key_down('space'):
-                print("Spacebar pressed!")
+            # Example: Check if the a key was pressed
+            if response_handler.is_key_down('a'):
+                print("a key pressed!")
+                audio_player.play(waveform)
                 # Do something in response to the spacebar press
-
-    # After the loop, you can access key presses and mouse clicks
-    key_presses = response_handler.get_key_presses()
-    mouse_clicks = response_handler.get_mouse_clicks()
-
-    print("Key Presses:", key_presses)
-    print("Mouse Clicks:", mouse_clicks)
-
+            
+    #time.sleep(0.01)
+        
     # Analyze frame intervals after the loop ends
     frame_intervals = np.array(frame_intervals)
     average_interval = np.mean(frame_intervals) * 1000  # Convert to milliseconds
@@ -194,8 +200,14 @@ def main():
     print(f"Average frame interval: {average_interval:.4f} ms")
     print(f"Standard deviation: {std_deviation:.4f} ms")
 
-    screen.close()
+    # one last flip
+    screen.flip()
 
+    # close the audio player
+    audio_player.close()
+
+    # close the screen
+    screen.close()
 
 if __name__ == "__main__":
     main()
