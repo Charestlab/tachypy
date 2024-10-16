@@ -6,6 +6,7 @@ from tachypy import (
     Screen,
     Texture,
     Circle,
+    Rectangle,
     FixationCross,
     center_rect_on_point,
     ResponseHandler,
@@ -25,7 +26,12 @@ center_y = screen.height//2
 fixation_cross = FixationCross(center=[center_x, center_y], half_width=50, half_height=50, thickness=2.0, color=(255, 0, 0))  # Red cross
 
 # let's add a white circle
-circle = Circle(center=(320, 240), radius=50, fill=True, color=(0, 255, 0))  # Green circle
+circle = Circle(center=(320, 240), radius=50, fill=True, color=(255, 255, 255))  # Green circle
+
+# let's add a nice blue rectangle
+# first we can define the rectangle it will strecth to:
+a_rect = [center_x+500, 190, center_x+1000, 290]
+rectangle = Rectangle(a_rect, fill=True, thickness=1.0, color=(20.0, 50.0, 255.0))
 
 # let's start our audio player
 audio_player = Audio(sample_rate=44100, channels=1)
@@ -94,6 +100,10 @@ while running:
 
         # draw a circle
         circle.draw()
+
+        # draw a rectangle
+        rectangle.draw()
+
 
         # draw the texture
         texture.draw(dest_rect)

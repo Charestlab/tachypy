@@ -110,7 +110,7 @@ class Screen:
             return None
         return (self.last_flip_time - self.prev_flip_time)/1e9 # go back to seconds
     
-    def fill(self, color):
+    def fill(self, color=(128,128,128)):
         """
         Fill the screen with a color.
 
@@ -121,8 +121,13 @@ class Screen:
 
         """
         # Use OpenGL to clear the screen with the specified color
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glDisable(GL_TEXTURE_2D)
+        glDisable(GL_BLEND)
+        glBlendFunc(GL_ONE, GL_ZERO)
+        glDisable(GL_DEPTH_TEST)
         glClearColor(color[0]/255.0, color[1]/255.0, color[2]/255.0, 1.0)
-        glClear(GL_COLOR_BUFFER_BIT)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
     def tick(self):
         """

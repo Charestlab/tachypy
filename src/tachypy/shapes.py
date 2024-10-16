@@ -35,6 +35,8 @@ class Circle:
 
     def draw(self):
         # Set the color for the circle
+        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_TEXTURE_BIT | GL_TRANSFORM_BIT)
+        glPushMatrix()
         glColor3f(*self.color)
 
         # Choose the OpenGL primitive type based on whether the circle is filled or not
@@ -54,6 +56,10 @@ class Circle:
             glVertex2f(x, y)
 
         glEnd()
+
+        glPopMatrix()
+        glPopAttrib()
+
 
 class Rectangle:
     def __init__(self, a_rect, fill=True, thickness=1.0, color=(255.0, 255.0, 255.0)):
@@ -87,6 +93,8 @@ class Rectangle:
         self.color = np.asarray(color) / 255.0
 
     def draw(self):
+        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_TEXTURE_BIT | GL_TRANSFORM_BIT)
+        glPushMatrix()
         glColor3f(*self.color)
 
         if self.fill:
@@ -104,6 +112,10 @@ class Rectangle:
             glVertex2f(self.x2, self.y2)  # Bottom-right
             glVertex2f(self.x1, self.y2)  # Bottom-left
             glEnd()
+        
+        glPopMatrix()
+        glPopAttrib()
+
 
 
 class Line:
@@ -135,12 +147,17 @@ class Line:
         self.thickness = thickness
 
     def draw(self):
+        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_TEXTURE_BIT | GL_TRANSFORM_BIT)
+        glPushMatrix()
         glColor3f(*self.color)
         glLineWidth(self.thickness)
         glBegin(GL_LINES)
         glVertex2f(*self.start_point)
         glVertex2f(*self.end_point)
         glEnd()
+        glPopMatrix()
+        glPopAttrib()
+
 
 
 class FixationCross:
