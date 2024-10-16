@@ -41,8 +41,7 @@ class Texture:
             texture_id: The ID of the texture to draw.
             a_rect: A rectangle defined as [x1, y1, x2, y2] or [[x1, xy], [x2, y2]].
         """
-        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_TEXTURE_BIT | GL_TRANSFORM_BIT)
-        glPushMatrix()
+
         a_rect = np.asarray(a_rect)
         if a_rect.shape[0]==4:
             x1, y1, x2, y2 = np.asarray(a_rect)
@@ -72,8 +71,5 @@ class Texture:
         
         # unbind the texture
         self.unbind()
-
-        glPopMatrix()
-        glPopAttrib()
 
 
