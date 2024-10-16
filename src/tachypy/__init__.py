@@ -2,7 +2,7 @@
 
 from .screen import Screen
 from .textures import Texture
-from .visuals import (
+from .shapes import (
     draw_rectangle,
     draw_line,
     draw_fixation_cross,
