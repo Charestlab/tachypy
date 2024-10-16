@@ -15,7 +15,7 @@ class ResponseHandler:
         ])
         self.key_presses = []
         self.mouse_clicks = []
-        self.start_time = time.perf_counter()
+        self.start_time = time.monotonic_ns()
         self.should_exit = False
         self.key_down_events = set()
         self.key_up_events = set()
@@ -26,7 +26,7 @@ class ResponseHandler:
 
         events = pygame.event.get()
         for event in events:
-            timestamp = time.perf_counter() - self.start_time
+            timestamp = (time.monotonic_ns() - self.start_time) /1e9 # convert to secs 
             if event.type == pygame.KEYDOWN:
                 key_name = pygame.key.name(event.key)
                 self.key_presses.append({
@@ -75,7 +75,7 @@ class ResponseHandler:
     def reset(self):
         self.key_presses = []
         self.mouse_clicks = []
-        self.start_time = time.perf_counter()
+        self.start_time = time.monotonic_ns()
         self.should_exit = False
         self.key_down_events.clear()
         self.key_up_events.clear()

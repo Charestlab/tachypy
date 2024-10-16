@@ -1,10 +1,12 @@
 import os
+import time
 import numpy as np
 from tachypy import (
+    Audio,
     Screen,
     Texture,
-    draw_rectangle,
-    draw_fixation_cross,
+    Circle,
+    FixationCross,
     center_rect_on_point,
     ResponseHandler,
     fabriquer_gabor,
@@ -15,6 +17,28 @@ from tachypy import (
 screen_number = 1
 screen = Screen(screen_number=screen_number, fullscreen=True, desired_refresh_rate=60)
 
+# get some relevant screen properties
+center_x = screen.width//2 
+center_y = screen.height//2 
+
+# let's initialise our FixationCross
+fixation_cross = FixationCross(center=[center_x, center_y], half_width=50, half_height=50, thickness=2.0, color=(255, 0, 0))  # Red cross
+
+# let's add a white circle
+circle = Circle(center=(320, 240), radius=50, fill=True, color=(0, 255, 0))  # Green circle
+
+# let's start our audio player
+audio_player = Audio(sample_rate=44100, channels=1)
+
+# make a sinewave for the sound
+duration = 1.0  # seconds
+frequency = 440.0  # Hz (A4 note)
+sample_rate = 44100
+t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+amplitude = 0.5
+waveform = amplitude * np.sin(2 * np.pi * frequency * t).astype(np.float32)
+
+
 # set the screen's background colour to gray
 screen.fill([128, 128, 128])
 
@@ -22,7 +46,7 @@ screen.fill([128, 128, 128])
 screen.flip()
 
 # check for the screen's actual refresh rate
-frame_rate_actual = screen.test_flip_intervals(num_frames=100)*1000
+frame_rate_actual = 1/screen.test_flip_intervals(num_frames=100)
 print(frame_rate_actual)
 
 # Initialize ResponseHandler
@@ -51,8 +75,7 @@ for ii in range(nb_frames_per_cycle):
 # Load stimuli (example: red, green, blue squares)
 textures = [Texture(stimulus) for stimulus in film]
 
-center_x = screen.width//2 
-center_y = screen.height//2 
+# define the position in which the Texture will be mapped.
 dest_rect = center_rect_on_point([0, 0, nx-100, nx-100], [center_x, center_y])
 
 # Main loop
@@ -69,14 +92,14 @@ while running:
 
         screen.fill([128, 128, 128])
 
-        # draw a rectangle
-        draw_rectangle([100, 100, 1000, 800], fill=False, thickness=1.0, color=(0.0, 255.0, 0.0))
+        # draw a circle
+        circle.draw()
 
         # draw the texture
         texture.draw(dest_rect)
 
         # draw the fixation cross
-        draw_fixation_cross([center_x, center_y], 50, 50, thickness=2.0, color=(255.0, 0.0, 0.0))
+        fixation_cross.draw()
 
         time_stamp = screen.flip()
 
@@ -88,10 +111,13 @@ while running:
             running = False
             break
 
-        # Example: Check if the spacebar was pressed
+        # Example: Check if the a key was pressed
         if response_handler.is_key_down('a'):
             print("a key pressed!")
+            audio_player.play(waveform)
             # Do something in response to the spacebar press
+        
+   #time.sleep(0.01)
        
 # Analyze frame intervals after the loop ends
 frame_intervals = np.array(frame_intervals)
@@ -103,6 +129,9 @@ print(f"Standard deviation: {std_deviation:.4f} ms")
 
 # one last flip
 screen.flip()
+
+# close the audio player
+audio_player.close()
 
 # close the screen
 screen.close()

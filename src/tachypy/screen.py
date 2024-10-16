@@ -7,7 +7,7 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 import numpy as np
 from screeninfo import get_monitors
-from time import perf_counter
+from time import monotonic_ns
 
 
 class Screen:
@@ -92,7 +92,7 @@ class Screen:
         pygame.display.flip()
         self.tick()
         self.prev_flip_time = self.last_flip_time
-        this_time = perf_counter()
+        this_time = monotonic_ns()
         self.last_flip_time = this_time
         return this_time
 
@@ -108,7 +108,7 @@ class Screen:
         """
         if self.last_flip_time is None or self.prev_flip_time is None:
             return None
-        return self.last_flip_time - self.prev_flip_time
+        return (self.last_flip_time - self.prev_flip_time)/1e9 # go back to seconds
     
     def fill(self, color):
         """
