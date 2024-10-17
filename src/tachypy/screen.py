@@ -7,7 +7,7 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 import numpy as np
 from screeninfo import get_monitors
-from time import monotonic_ns
+from time import monotonic_ns, sleep
 
 
 class Screen:
@@ -52,6 +52,7 @@ class Screen:
         self.fullscreen = fullscreen
         self.vsync = vsync
         self.desired_refresh_rate = desired_refresh_rate
+        self.mouse_visible = True
 
         # Internal timing variables for frame measurement
         self.last_flip_time = None
@@ -153,8 +154,42 @@ class Screen:
         frame_rate_actual = np.mean(frame_rates_array[frame_rates_array>0])
         return frame_rate_actual
 
+    def hide_mouse(self):
+        # Hide the mouse cursor
+        pygame.mouse.set_visible(False)
+
+    def show_mouse(self):
+        # Show the mouse cursor
+        pygame.mouse.set_visible(True)
+
+    def wait(self, duration_secs):
+        """
+        Wait for a specified duration in seconds using high-precision timing.
+        
+        Parameters:
+            duration_secs: The duration to wait in seconds (float).
+        """
+        start_time = monotonic_ns()
+        end_time = start_time + int(duration_secs * 1e9)  # Convert seconds to nanoseconds
+
+        # Sleep in small increments to reduce CPU usage
+        while True:
+            current_time = monotonic_ns()
+            remaining_time = (end_time - current_time) / 1e9  # Convert to seconds
+
+            if remaining_time <= 0:
+                break
+
+            if remaining_time > 0.005:
+                # If more than 5 milliseconds remaining, sleep for a short duration
+                sleep(0.001)  # Sleep for 1 millisecond
+            else:
+                # Busy-wait for the remaining time for higher precision
+                pass
+
     def close(self):
         """
         Close the screen.
         """
+        self.show_mouse()
         pygame.quit()

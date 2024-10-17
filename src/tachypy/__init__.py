@@ -9,7 +9,8 @@ from .shapes import (
     FixationCross,
     center_rect_on_point,
 )
-from .responses import ResponseHandler
+from .responses import ResponseHandler, Scrollbar
+from .text import Text
 from .psychophysics import (
     fabriquer_grille_sin,
     fabriquer_gabor,
