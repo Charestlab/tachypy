@@ -2,17 +2,17 @@
 
 from setuptools import setup, find_packages
 
+requires = []
+with open('requirements.txt') as reqfile:
+    requires = reqfile.read().splitlines()
+
+
 setup(
     name='tachypy',
     version='0.1.0',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
-    install_requires=[
-        'pygame>=2.0.0',
-        'PyOpenGL>=3.1.0',
-        'numpy>=1.18.0',
-        'screeninfo>=0.6.0',
-    ],
+    install_requires=requires,
     author='Ian Charest and Frederic Gosselin',
     author_email='charest.ian@gmail.com',
     description='A package for OpenGL drawing using Pygame.',
