@@ -38,7 +38,7 @@
 You can install TachyPy directly from GitHub:
 
 ```bash
-pip install git+https://github.com/yourusername/tachypy.git
+pip install git+https://github.com/Charestlab/tachypy.git
 ```
 
 Alternatively, clone the repository and install in editable mode:
