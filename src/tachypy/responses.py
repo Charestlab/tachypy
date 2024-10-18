@@ -8,7 +8,7 @@ from tachypy.text import Text     # Assuming you have a Text class
 import time
 
 class ResponseHandler:
-    def __init__(self):
+    def __init__(self, keys_to_listen=None):
         # Initialize Pygame's event system
         pygame.event.set_allowed([
             pygame.KEYDOWN,
@@ -29,6 +29,9 @@ class ResponseHandler:
 
         self.mouse_position = None
         self.mouse_buttons = [False, False, False]  # Left, Middle, Right buttons
+
+        # Store the keys to listen for
+        self.keys_to_listen = keys_to_listen
     
     def reset_timer(self):
         """
@@ -41,43 +44,37 @@ class ResponseHandler:
 
         events = pygame.event.get()
         for event in events:
-            timestamp = (time.monotonic_ns() - self.start_time) /1e9 # convert to secs 
-            if event.type == pygame.KEYDOWN:
+            timestamp = (time.monotonic_ns() - self.start_time) / 1e9  # Convert to seconds
+
+            if event.type == pygame.QUIT:
+                self.should_exit = True
+            elif event.type == pygame.KEYDOWN:
                 key_name = pygame.key.name(event.key)
-                self.key_presses.append({
-                    'time': timestamp,
-                    'type': 'keydown',
-                    'key': key_name
-                })
-                self.key_down_events.add(key_name)
-                if key_name == 'escape':
-                    self.should_exit = True
-            # elif event.type == pygame.KEYUP:
-            #     key_name = pygame.key.name(event.key)
-            #     self.key_presses.append({
-            #         'time': timestamp,
-            #         'type': 'keyup',
-            #         'key': key_name
-            #     })
-            #     self.key_up_events.add(key_name)
+                if self.keys_to_listen is None or key_name in self.keys_to_listen:
+                    self.key_presses.append({
+                        'time': timestamp,
+                        'type': 'keydown',
+                        'key': key_name
+                    })
+                    self.key_down_events.add(key_name)
+                    if key_name == 'escape':
+                        self.should_exit = True
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 self.mouse_clicks.append({
                     'time': timestamp,
                     'type': 'mousedown',
-                    'button': event.button,
+                    'button': event.button - 1,  # Adjust to 0-based index
                     'pos': event.pos
                 })
             elif event.type == pygame.MOUSEBUTTONUP:
                 self.mouse_clicks.append({
                     'time': timestamp,
                     'type': 'mouseup',
-                    'button': event.button,
+                    'button': event.button - 1,  # Adjust to 0-based index
                     'pos': event.pos
                 })
-            elif event.type == pygame.QUIT:
-                self.should_exit = True
 
-                # Update mouse position and button states
+        # Update mouse position and button states
         self.mouse_position = pygame.mouse.get_pos()
         self.mouse_buttons = pygame.mouse.get_pressed()
         # return events

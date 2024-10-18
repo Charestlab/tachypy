@@ -69,6 +69,9 @@ class Screen:
         self.screen = pygame.display.set_mode((self.width, self.height), flags, vsync=vsync)
         self.clock = pygame.time.Clock()
 
+        # grab the mouse attention
+        pygame.event.set_grab(True)
+
         # Initialize OpenGL
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()

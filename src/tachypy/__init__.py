@@ -24,3 +24,4 @@ from .psychophysics import (
     fabriquer_petit_damier,
     )
 from .audio import Audio
+from .quest import QuestObject
