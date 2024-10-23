@@ -22,6 +22,7 @@ from .psychophysics import (
     fabriquer_secteurs_sin,
     fabriquer_grand_damier,
     fabriquer_petit_damier,
+    location_bubbles,
     )
 from .audio import Audio
 from .quest import QuestObject
