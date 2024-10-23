@@ -315,7 +315,7 @@ class QuestObject:
         if len(getinf(self.s2)[0]):
             raise RuntimeError('psychometric function s2 is not finite')
 
-        eps = 1e-14
+        eps = 2.2204e-16 # as in the Psychtoolbox but was 1e-14
 
         pL = self.p2[0]
         pH = self.p2[-1]
@@ -329,14 +329,14 @@ class QuestObject:
         # recompute the pdf from the historical record of trials
         for intensity, response in zip(self.intensity,self.response):
             inten = max(-1e10,min(1e10,intensity)) # make intensity finite
-            ii = len(self.pdf) + self.i-round((inten-self.tGuess)/self.grain)-1
+            ii = len(self.pdf) + self.i-round((inten-self.tGuess)/self.grain)-1 # round does not work the same way as in Matlab and the Psychtoolbox; change it
             if ii[0]<0:
                 ii = ii-ii[0]
             if ii[-1]>=self.s2.shape[1]:
                 ii = ii+self.s2.shape[1]-ii[-1]-1
-            iii = ii.astype(num.int_)
-            if not num.allclose(ii,iii):
-                raise ValueError('truncation error')
+            iii = ii.astype(num.int_)                       # not in the Psychtoolbox
+            if not num.allclose(ii,iii):                    # not in the Psychtoolbox
+                raise ValueError('truncation error')        # not in the Psychtoolbox
             self.pdf = self.pdf*self.s2[response,iii]
             if self.normalizePdf and k%100==0:
                 self.pdf = self.pdf/num.sum(self.pdf) # avoid underflow; keep the pdf normalized
