@@ -119,7 +119,7 @@ class QuestObject:
             dim=2*math.ceil(dim/2.0) # round up to even integer
         self.updatePdf = True
         self.warnPdf = True
-        self.normalizePdf = False
+        self.normalizePdf = True # was False but is True in the Psychtoolbox
         self.tGuess = tGuess
         self.tGuessSd = tGuessSd
         self.pThreshold = pThreshold
@@ -294,11 +294,13 @@ class QuestObject:
         i2 = num.arange(-self.dim,self.dim+1)
         self.x2 = i2*self.grain
         self.p2 = self.delta*self.gamma+(1-self.delta)*(1-(1-self.gamma)*num.exp(-10**(self.beta*self.x2)))
-        if self.p2[0] >= self.pThreshold or self.p2[-1] <= self.pThreshold:
-            raise RuntimeError('psychometric function range [%.2f %.2f] omits %.2f threshold'%(self.p2[0],self.p2[-1],self.pThreshold)) # XXX
+        #if self.p2[0] >= self.pThreshold or self.p2[-1] <= self.pThreshold:
+        if self.p2[0] > self.pThreshold or self.p2[-1] < self.pThreshold: # what's in the Psychtoolbox
+            raise RuntimeError('psychometric function range [%.2f %.2f] omits %.2f threshold'%(self.p2[0],self.p2[-1],self.pThreshold))
         if len(getinf(self.p2)[0]):
             raise RuntimeError('psychometric function p2 is not finite')
-        index = num.nonzero( self.p2[1:]-self.p2[:-1] )[0] # strictly monotonic subset
+        #index = num.nonzero( self.p2[1:]-self.p2[:-1] )[0] # strictly monotonic subset
+        index = np.where(np.diff(self.p2) != 0)[0] # closer to the Psychtoolbox formulation
         if len(index) < 2:
             raise RuntimeError('psychometric function has only %g strictly monotonic points'%len(index))
         self.xThreshold = num.interp([self.pThreshold],self.p2[index],self.x2[index])[0]
@@ -307,6 +309,7 @@ class QuestObject:
             raise RuntimeError('psychometric function p2 is not finite')
         self.s2 = num.array( ((1-self.p2)[::-1], self.p2[::-1]) )
         if not hasattr(self,'intensity') or not hasattr(self,'response'):
+            self.trialCount = 0 # in the Psychtoolbox but not here
             self.intensity = []
             self.response = []
         if len(getinf(self.s2)[0]):
