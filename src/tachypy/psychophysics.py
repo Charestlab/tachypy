@@ -1,4 +1,5 @@
 import numpy as np
+import random
   
 def fabriquer_grille_sin(nx, frequence, phase, angle):
     # fabriquer_grille_sin permet de fabriquer l'image carrée d'une grille sinusoïdale variant entre 0 et 1.
@@ -135,7 +136,6 @@ def fabriquer_petit_damier(une_case):
     return petit_damier
 
 
-
 def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y_size=None, random_state=None):
     """
     Generates a noisy spatial mask (referred to as a 'bubbles mask') and applies it to an image, 
@@ -168,8 +168,6 @@ def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y
                 A (x_size + 2*std_bubble*5 by y_size + 2*std_bubble*5) binary array representing 
                 the centers of the bubbles. It is larger than the image to ensure homogeneous sampling, 
                 including at the image's borders.
-            - random.getstate(): tuple
-                The current state of the random number generator.
         If an_image is provided:
             - the_noise: ndarray
                 A (x_size + 2*std_bubble*n_zero by y_size + 2*std_bubble*n_zeros, with n_zero equal to 5) 
@@ -178,8 +176,6 @@ def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y
             - stimulus: ndarray
                 The resulting stimulus after applying the bubbles mask to the original image. Where the 
                 bubbles do not sample the image, the stimulus appears mid-gray (value of 0.5).
-            - random.getstate(): tuple
-                The current state of the random number generator.
 
     Raises:
     ValueError:
@@ -193,9 +189,9 @@ def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y
         an_image = np.random.random((y_size, x_size)) # grayscale image with values between 0 and 1        
         nb_bubbles = 100
         std_bubble = 15
-        random_state = random.getstate()
-        the_noise, stimulus, random_state = location_bubbles(nb_bubbles=nb_bubbles, std_bubble=std_bubble, an_image=an_image, x_size=None, y_size=None, random_state=random_state) # with an image
-        #the_noise, random_state = location_bubbles(nb_bubbles=nb_bubbles, std_bubble=std_bubble, an_image=None, x_size=an_image.shape[0], y_size=an_image.shape[1], random_state=random_state) # with coordinates
+        random_state = np.random.get_state()
+        the_noise, stimulus = location_noise(nb_bubbles=nb_bubbles, std_bubble=std_bubble, an_image=an_image, x_size=None, y_size=None, random_state=random_state) # with an image
+        #the_noise = location_noise(nb_bubbles=nb_bubbles, std_bubble=std_bubble, an_image=None, x_size=an_image.shape[0], y_size=an_image.shape[1], random_state=random_state) # with coordinates
 
     History:
         Written by Frederic Gosselin, October 17 2024
@@ -203,7 +199,8 @@ def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y
 
     # Set the random state for reproducibility
     if random_state is not None:
-        random.setstate(random_state)
+        #random.setstate(random_state)
+        np.random.set_state(random_state)
     else:
         raise ValueError("Must provide a pseudo-random generator state.")
 
@@ -218,12 +215,14 @@ def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y
     # Generate probabilistic placement of bubbles over an extended area (to handle image borders)
     n_zero = 5  # Number of standard deviations to use for the bubble size
     max_half_size = round(std_bubble * n_zero)  # Maximum size (half-width) for the Gaussian bubble
-    temp_rand = np.random.rand(y_size + 2*max_half_size, x_size + 2*max_half_size)  # Noise over extended area
+    #temp_rand = np.asarray([[random.uniform(0, 1) for _ in range(x_size + 2*max_half_size)] for _ in range(y_size + 2*max_half_size)]) # Noise over extended area
+    temp_rand = np.random.rand(y_size + 2*max_half_size, x_size + 2*max_half_size)
     the_noise = (temp_rand <= (nb_bubbles / ((x_size+2*max_half_size) * (y_size+2*max_half_size))))  # Binary mask
 
     # If no image is provided, return just the noise mask and the current random state
     if an_image is None:
-        return the_noise, random.getstate()
+        #return the_noise, random.getstate()
+        return the_noise
     
     else:
         # Create a 2D Gaussian kernel to simulate bubble spread (blur effect)
@@ -247,4 +246,4 @@ def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y
         stimulus = win_plane / 2 * (an_image - 0.5) + 0.5  # Blend noise mask with image
 
         # Return the noise mask, the final stimulus, and the current random state
-        return the_noise, stimulus, random.getstate()
+        return the_noise, stimulus
