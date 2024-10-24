@@ -46,6 +46,27 @@ def getinf(x):
     return num.nonzero( num.isinf( num.atleast_1d(x) ) )
 
 
+def alt_round(x):
+    """
+     alt_round(x)
+     
+     <x> is an array
+     
+     simulate the rounding behavior of matlab where 0.5 rounds 
+     to 1 and -.5 rounds to -1. (python rounds ties to the
+     nearest even integer.)
+     
+     return:
+      an array of rounded values (as integers)
+    
+     example:
+     import numpy as np
+     x = np.array([-1, -0.5, 0, 0.5, 0.7, 1.0, 1.5, 2.1, 2.5, 2.6, 3.5])
+     y = alt_round(x)
+
+    """
+    return (np.sign(x) * np.ceil( np.floor( np.abs(x) * 2 ) / 2 )).astype(int)
+
 class QuestObject:
     
     """Measure threshold using a Weibull psychometric function.
@@ -218,7 +239,7 @@ class QuestObject:
         
         This was converted from the Psychtoolbox's QuestPdf function.
         """
-        i=int(round((t-self.tGuess)/self.grain))+1+self.dim/2 # change for the other round
+        i=int(alt_round((t-self.tGuess)/self.grain))+1+self.dim/2 # change for the other round
         i=min(len(self.pdf),max(1,i))-1
         p=self.pdf[i]
         return p
@@ -273,8 +294,8 @@ class QuestObject:
 
         This was converted from the Psychtoolbox's QuestSimulate function."""
         #t = min( max(tTest-tActual, self.x2[0]), self.x2[-1] )
-        x2min = np.min(q.x2[[0, -1]])  # this is equivalent to Psychtoolbox
-        x2max = np.max(q.x2[[0, -1]])  # this is equivalent to Psychtoolbox
+        x2min = np.min(self.x2[[0, -1]])  # this is equivalent to Psychtoolbox
+        x2max = np.max(self.x2[[0, -1]])  # this is equivalent to Psychtoolbox
         t = min(max(tTest-tActual, x2min), x2max) # this is equivalent to Psychtoolbox
         response= num.interp([t],self.x2,self.p2)[0] > random.random()
         return response
@@ -338,7 +359,7 @@ class QuestObject:
         # recompute the pdf from the historical record of trials
         for intensity, response in zip(self.intensity,self.response):
             inten = max(-1e10,min(1e10,intensity)) # make intensity finite
-            ii = len(self.pdf) + self.i-round((inten-self.tGuess)/self.grain)-1 # round does not work the same way as in Matlab and the Psychtoolbox; change it
+            ii = len(self.pdf) + self.i-alt_round((inten-self.tGuess)/self.grain)-1 # round does not work the same way as in Matlab and the Psychtoolbox; change it
             if ii[0]<0:
                 ii = ii-ii[0]
             if ii[-1]>=self.s2.shape[1]:
@@ -369,8 +390,8 @@ class QuestObject:
             raise RuntimeError('response %g out of range 0 to %d'%(response,self.s2.shape[0]))
         if self.updatePdf:
             inten = max(-1e10,min(1e10,intensity)) # make intensity finite
-            ii = len(self.pdf) + self.i-round((inten-self.tGuess)/self.grain)-1
-            #ii = self.pdf.shape[1] + self.i-round((inten-self.tGuess)/self.grain)-1 # change round but otherwise more like Psychtoolbox
+            ii = len(self.pdf) + self.i-alt_round((inten-self.tGuess)/self.grain)-1
+            #ii = self.pdf.shape[1] + self.i-alt_round((inten-self.tGuess)/self.grain)-1 # change round but otherwise more like Psychtoolbox
             if ii[0]<0 or ii[-1] > self.s2.shape[1]:
                 if self.warnPdf:
                     low=(1-len(self.pdf)-self.i[0])*self.grain+self.tGuess # same comment as above
