@@ -448,7 +448,7 @@ def demo():
     
     print('The intensity scale is abstract, but usually we think of it as representing log contrast.')
 
-    tActual = None
+    tActual = .5
     while tActual is None:
         sys.stdout.write('Specify true threshold of simulated observer: ')
         input = raw_input()
@@ -457,7 +457,7 @@ def demo():
         except:
             pass
     
-    tGuess = None
+    tGuess = .9
     while tGuess is None:
         sys.stdout.write('Estimate threshold: ')
         input = raw_input()
