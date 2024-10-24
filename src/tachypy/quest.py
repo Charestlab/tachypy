@@ -147,14 +147,15 @@ class QuestObject:
                 q_copy.beta=2**(i/4.0)
                 q_copy.dim=250
                 q_copy.grain=0.02
-                q_copy.recompute()
+                q_copy.recompute() # this is done outside the loop on q2 in Psychtoolbox
                 q2.append(q_copy)
             na = num.array # shorthand
             t2    = na([q2i.mean() for q2i in q2])
             p2    = na([q2i.pdf_at(t2i) for q2i,t2i in zip(q2,t2)])
             sd2   = na([q2i.sd() for q2i in q2])
             beta2 = na([q2i.beta for q2i in q2])
-            i=num.argsort(p2)[-1]
+            i = num.argmax(p2)
+            #i=num.argsort(p2)[-1] # is p,i]=max(p2) in Psychtoolbox
             t=t2[i]
             sd=q2[i].sd()
             p=num.sum(p2)
@@ -163,6 +164,7 @@ class QuestObject:
             iBetaMean=num.sum(p2/beta2)/p
             iBetaSd=math.sqrt(num.sum(p2/beta2**2)/p-(num.sum(p2/beta2)/p)**2)
             stream.write('%5.2f	%5.2f	%4.1f	%4.1f	%6.3f\n'%(t,sd,1/iBetaMean,betaSd,self.gamma))
+            # where is: return betaEstimate = 1/iBetaMean ???
         print('Now re-analyzing with beta as a free parameter. . . .')
         if stream is None:
             stream=sys.stdout
@@ -176,6 +178,8 @@ class QuestObject:
 
         This was converted from the Psychtoolbox's QuestMean function.
         """
+        # there is chunk missing that deals with the case length(q)>1. Implies that never happens here.
+        
         return self.tGuess + num.sum(self.pdf*self.x)/num.sum(self.pdf)
 
     def mode(self):
@@ -187,7 +191,8 @@ class QuestObject:
 
         This was converted from the Psychtoolbox's QuestMode function.
         """
-        iMode = num.argsort(self.pdf)[-1]
+        #iMode = num.argsort(self.pdf)[-1]
+        iMode = num.argmax(self.pdf)
         p=self.pdf[iMode]
         t=self.x[iMode]+self.tGuess
         return t,p
@@ -213,7 +218,7 @@ class QuestObject:
         
         This was converted from the Psychtoolbox's QuestPdf function.
         """
-        i=int(round((t-self.tGuess)/self.grain))+1+self.dim/2
+        i=int(round((t-self.tGuess)/self.grain))+1+self.dim/2 # change for the other round
         i=min(len(self.pdf),max(1,i))-1
         p=self.pdf[i]
         return p
@@ -241,8 +246,9 @@ class QuestObject:
             raise RuntimeError('pdf is not finite')
         if p[-1]==0:
             raise RuntimeError('pdf is all zero')
-        m1p = num.concatenate(([-1],p))
-        index = num.nonzero( m1p[1:]-m1p[:-1] )[0]
+        #m1p = num.concatenate(([-1],p))
+        #index = num.nonzero( m1p[1:]-m1p[:-1] )[0]
+        index = np.where(np.diff(np.concatenate(([-1], p))) > 0)[0] # more similar to Psychtoolbox than the previous
         if len(index) < 2:
             raise RuntimeError('pdf has only %g nonzero point(s)'%len(index))
         ires = num.interp([quantileOrder*p[-1]],p[index],self.x[index])[0]
@@ -266,7 +272,10 @@ class QuestObject:
         Simulate the response of an observer with threshold tActual.
 
         This was converted from the Psychtoolbox's QuestSimulate function."""
-        t = min( max(tTest-tActual, self.x2[0]), self.x2[-1] )
+        #t = min( max(tTest-tActual, self.x2[0]), self.x2[-1] )
+        x2min = np.min(q.x2[[0, -1]])  # this is equivalent to Psychtoolbox
+        x2max = np.max(q.x2[[0, -1]])  # this is equivalent to Psychtoolbox
+        t = min(max(tTest-tActual, x2min), x2max) # this is equivalent to Psychtoolbox
         response= num.interp([t],self.x2,self.p2)[0] > random.random()
         return response
 
@@ -361,17 +370,18 @@ class QuestObject:
         if self.updatePdf:
             inten = max(-1e10,min(1e10,intensity)) # make intensity finite
             ii = len(self.pdf) + self.i-round((inten-self.tGuess)/self.grain)-1
+            #ii = self.pdf.shape[1] + self.i-round((inten-self.tGuess)/self.grain)-1 # change round but otherwise more like Psychtoolbox
             if ii[0]<0 or ii[-1] > self.s2.shape[1]:
                 if self.warnPdf:
-                    low=(1-len(self.pdf)-self.i[0])*self.grain+self.tGuess
-                    high=(self.s2.shape[1]-len(self.pdf)-self.i[-1])*self.grain+self.tGuess
+                    low=(1-len(self.pdf)-self.i[0])*self.grain+self.tGuess # same comment as above
+                    high=(self.s2.shape[1]-len(self.pdf)-self.i[-1])*self.grain+self.tGuess # suddenly more like Psychtoolbox
                     warnings.warn( 'intensity %.2f out of range %.2f to %.2f. Pdf will be inexact.'%(intensity,low,high),
                                    RuntimeWarning,stacklevel=2)
                 if ii[0]<0:
                     ii = ii-ii[0]
                 else:
                     ii = ii+self.s2.shape[1]-ii[-1]-1
-            iii = ii.astype(num.int_)
+            iii = ii.astype(num.int_) # strange
             if not num.allclose(ii,iii):
                 raise ValueError('truncation error')
             self.pdf = self.pdf*self.s2[response,iii]
@@ -443,14 +453,14 @@ def demo():
     q=QuestObject(tGuess,tGuessSd,pThreshold,beta,delta,gamma)
     
     # Simulate a series of trials.
-    trialsDesired=100
+    trialsDesired=40
     wrongRight = 'wrong', 'right'
     timeZero=time.time()
     for k in range(trialsDesired):
         # Get recommended level.  Choose your favorite algorithm.
-        tTest=q.quantile()
-        #tTest=q.mean()
-        #tTest=q.mode()
+        tTest=q.quantile()  # Recommended by Pelli (1987), and still our favorite.
+        #tTest=q.mean()     # Recommended by King-Smith et al. (1994)
+        #tTest=q.mode()     # Recommended by Watson & Pelli (1983)
 
         tTest=tTest+random.choice([-0.1,0,0.1])
 
@@ -467,7 +477,7 @@ def demo():
     print('%.0f ms/trial'%(1000*(time.time()-timeZero)/trialsDesired))
 
     # Get final estimate.
-    t=q.mean()
+    t=q.mean() # Recommended by Pelli (1989) and King-Smith et al. (1994). Still our favorite.
     sd=q.sd()
     print('Mean threshold estimate is %4.2f +/- %.2f'%(t,sd))
     #t=QuestMode(q);
