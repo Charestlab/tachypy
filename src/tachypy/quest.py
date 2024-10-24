@@ -39,7 +39,7 @@ import warnings
 import random
 import sys
 import time
-
+from ipdb import set_trace
 import numpy as np
 
 def getinf(x):
@@ -357,7 +357,9 @@ class QuestObject:
             raise RuntimeError('prior pdf is not finite')
 
         # recompute the pdf from the historical record of trials
+        k=0
         for intensity, response in zip(self.intensity,self.response):
+            k+=1
             inten = max(-1e10,min(1e10,intensity)) # make intensity finite
             ii = len(self.pdf) + self.i-alt_round((inten-self.tGuess)/self.grain)-1 # round does not work the same way as in Matlab and the Psychtoolbox; change it
             if ii[0]<0:
@@ -448,23 +450,10 @@ def demo():
     
     print('The intensity scale is abstract, but usually we think of it as representing log contrast.')
 
-    tActual = .5
-    while tActual is None:
-        sys.stdout.write('Specify true threshold of simulated observer: ')
-        input = raw_input()
-        try:
-            tActual = float(input)
-        except:
-            pass
+    tActual = 2
     
     tGuess = .9
-    while tGuess is None:
-        sys.stdout.write('Estimate threshold: ')
-        input = raw_input()
-        try:
-            tGuess = float(input)
-        except:
-            pass
+    
     
     tGuessSd = 2.0 # sd of Gaussian before clipping to specified range
     pThreshold = 0.82
@@ -474,7 +463,7 @@ def demo():
     q=QuestObject(tGuess,tGuessSd,pThreshold,beta,delta,gamma)
     
     # Simulate a series of trials.
-    trialsDesired=40
+    trialsDesired=1000
     wrongRight = 'wrong', 'right'
     timeZero=time.time()
     for k in range(trialsDesired):
@@ -487,7 +476,8 @@ def demo():
 
         # Simulate a trial
         timeSplit=time.time() # omit simulation and printing from reported time/trial.
-        response=q.simulate(tTest,tActual)
+        response=int(q.simulate(tTest,tActual)/1)
+
         print('Trial %3d at %4.1f is %s'%(k+1,tTest,wrongRight[int(response)]))
         timeZero=timeZero+time.time()-timeSplit
         
@@ -504,11 +494,11 @@ def demo():
     #t=QuestMode(q);
     #print 'Mode threshold estimate is %4.2f'%t
 
-    print('\nQuest beta analysis. Beta controls the steepness of the Weibull function.\n')
-    q.beta_analysis()
-    print('Actual parameters of simulated observer:')
-    print('logC	beta	gamma')
-    print('%5.2f	%4.1f	%5.2f'%(tActual,q.beta,q.gamma))
+    # print('\nQuest beta analysis. Beta controls the steepness of the Weibull function.\n')
+    # q.beta_analysis()
+    # print('Actual parameters of simulated observer:')
+    # print('logC	beta	gamma')
+    # print('%5.2f	%4.1f	%5.2f'%(tActual,q.beta,q.gamma))
     
 if __name__ == '__main__':
     demo() # run the demo
