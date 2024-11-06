@@ -6,33 +6,61 @@ from OpenGL.GLU import *
 from tachypy.shapes import Line  # Assuming Line class is in your visuals module
 from tachypy.text import Text     # Assuming you have a Text class
 import time
+# responses.py
+
 
 class ResponseHandler:
+    """
+    A class to handle user input events in a Pygame application.
+
+    This class processes keyboard and mouse events, maintains the current state
+    of keys and mouse buttons, and provides methods to access this information.
+    It also handles quitting the application when needed.
+
+    Attributes:
+        should_exit (bool): Flag indicating whether the application should quit.
+        start_time (int): Start time in nanoseconds for reaction time measurement.
+        key_presses (list): List of key press and release events.
+        mouse_clicks (list): List of mouse click events.
+        key_down_events (set): Set of keys currently pressed down.
+        key_up_events (set): Set of keys released in the current frame.
+        mouse_position (tuple): Current position of the mouse cursor.
+        mouse_buttons (tuple): Current state of mouse buttons (pressed or not).
+        keys_to_listen (list): List of key names to listen for. If None, listens to all keys.
+        events (list): List of Pygame events processed in the current frame.
+    """
+
     def __init__(self, keys_to_listen=None):
-        # Initialize Pygame's event system
-        pygame.event.set_allowed([
-            pygame.KEYDOWN,
-            pygame.KEYUP,
-            pygame.MOUSEBUTTONDOWN,
-            pygame.MOUSEBUTTONUP,
-            pygame.QUIT
-        ])
+        """
+        Initialize the ResponseHandler.
 
-        # Initialize internal state
+        Parameters:
+            keys_to_listen (list): List of key names to listen for (e.g., ['a', 's', 'escape']).
+                                   If None, listens to all keys.
+        """
+        # Flag indicating whether the application should quit
         self.should_exit = False
-        self.start_time = time.monotonic_ns()  # Start time for reaction time measurement
+        # Start time for reaction time measurement
+        self.start_time = time.monotonic_ns()
 
-        self.key_presses = []  # List of key press events
-        self.mouse_clicks = []  # List of mouse click events
+        # Lists to store input events
+        self.key_presses = []    # List of key press and release events
+        self.mouse_clicks = []   # List of mouse click events
 
-        self.key_down_events = set()  # Set of keys currently pressed
+        # Sets to track current key states
+        self.key_down_events = set()  # Set of keys currently pressed down
+        self.key_up_events = set()    # Set of keys released in the current frame
 
-        self.mouse_position = None
-        self.mouse_buttons = [False, False, False]  # Left, Middle, Right buttons
+        # Mouse state
+        self.mouse_position = None                   # Current mouse position (x, y)
+        self.mouse_buttons = [False, False, False]   # Mouse buttons states: [Left, Middle, Right]
 
-        # Store the keys to listen for
+        # List of key names to listen for
         self.keys_to_listen = keys_to_listen
-    
+
+        # List to store Pygame events processed in the current frame
+        self.events = []
+
     def reset_timer(self):
         """
         Reset the start time for reaction time measurements.
@@ -40,33 +68,66 @@ class ResponseHandler:
         self.start_time = time.monotonic_ns()
 
     def get_events(self):
-        self.key_down_events.clear()
+        """
+        Retrieve and process Pygame events, updating internal state.
 
-        events = pygame.event.get()
-        for event in events:
-            timestamp = (time.monotonic_ns() - self.start_time) / 1e9  # Convert to seconds
+        Stores the events in self.events for access by other components.
+        """
+        # Clear key event sets
+        self.key_down_events.clear()
+        self.key_up_events.clear()
+
+        # Get events from Pygame event queue
+        self.events = pygame.event.get()
+
+        for event in self.events:
+            # Calculate timestamp relative to start_time, in seconds
+            timestamp = (time.monotonic_ns() - self.start_time) / 1e9
 
             if event.type == pygame.QUIT:
+                # Set flag to exit the application
                 self.should_exit = True
+
             elif event.type == pygame.KEYDOWN:
+                # Key pressed down
                 key_name = pygame.key.name(event.key)
                 if self.keys_to_listen is None or key_name in self.keys_to_listen:
+                    # Store key press event
                     self.key_presses.append({
                         'time': timestamp,
                         'type': 'keydown',
                         'key': key_name
                     })
+                    # Add to set of currently pressed keys
                     self.key_down_events.add(key_name)
+                    # Check for escape key to quit application
                     if key_name == 'escape':
                         self.should_exit = True
+
+            elif event.type == pygame.KEYUP:
+                # Key released
+                key_name = pygame.key.name(event.key)
+                if self.keys_to_listen is None or key_name in self.keys_to_listen:
+                    # Store key release event
+                    self.key_presses.append({
+                        'time': timestamp,
+                        'type': 'keyup',
+                        'key': key_name
+                    })
+                    # Add to set of keys released this frame
+                    self.key_up_events.add(key_name)
+
             elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Mouse button pressed
                 self.mouse_clicks.append({
                     'time': timestamp,
                     'type': 'mousedown',
                     'button': event.button - 1,  # Adjust to 0-based index
                     'pos': event.pos
                 })
+
             elif event.type == pygame.MOUSEBUTTONUP:
+                # Mouse button released
                 self.mouse_clicks.append({
                     'time': timestamp,
                     'type': 'mouseup',
@@ -77,22 +138,23 @@ class ResponseHandler:
         # Update mouse position and button states
         self.mouse_position = pygame.mouse.get_pos()
         self.mouse_buttons = pygame.mouse.get_pressed()
-        # return events
-    
-    
+
     def should_quit(self):
         """
         Check if the application should quit.
+
+        Returns:
+            bool: True if the application should quit, False otherwise.
         """
         return self.should_exit
 
     def get_key_presses(self):
         """
-        Get the list of key press events.
+        Get the list of key press and release events.
 
         Returns:
-            A list of dictionaries with keys:
-                - 'time': Timestamp of the event relative to start_time.
+            list: A list of dictionaries with keys:
+                - 'time': Timestamp of the event relative to start_time (float).
                 - 'type': 'keydown' or 'keyup'.
                 - 'key': Name of the key.
         """
@@ -100,71 +162,72 @@ class ResponseHandler:
 
     def is_key_down(self, key_name):
         """
-        Check if a specific key is currently pressed.
+        Check if a specific key is currently pressed down.
 
         Parameters:
-            key_name: Name of the key to check.
+            key_name (str): Name of the key to check.
 
         Returns:
-            True if the key is currently pressed, False otherwise.
+            bool: True if the key is currently pressed, False otherwise.
         """
         return key_name in self.key_down_events
-    
 
-    def set_position(self, new_position):
-        """
-        Set the mouse cursor position.
-
-        Parameters:
-            new_position: Tuple (x, y) representing the new mouse position.
-        """
-        pygame.mouse.set_pos(new_position)
-        # Update internal mouse position
-        self.mouse_position = new_position
-
-    def get_position(self):
+    def get_mouse_position(self):
         """
         Get the current mouse position.
 
         Returns:
-            Tuple (x, y) representing the mouse position.
+            tuple: (x, y) coordinates of the mouse cursor.
         """
         return self.mouse_position
 
-    def is_mouse_button_pressed(self, button=None):
+    def is_mouse_button_pressed(self, button):
         """
-        Check if a specific mouse button is pressed.
+        Check if a specific mouse button is currently pressed.
 
         Parameters:
-            button: 0 for left button, 1 for middle button, 2 for right button
+            button (int): 0 for left button, 1 for middle button, 2 for right button.
 
         Returns:
-            True if the button is currently pressed, False otherwise.
+            bool: True if the button is currently pressed, False otherwise.
         """
-        if button is None:
-            return any(self.mouse_buttons)
-        else:
-            return self.mouse_buttons[button]
+        return self.mouse_buttons[button]
 
     def get_mouse_clicks(self):
         """
         Get the list of mouse click events.
 
         Returns:
-            A list of dictionaries with keys:
-                - 'time': Timestamp of the event relative to start_time.
+            list: A list of dictionaries with keys:
+                - 'time': Timestamp of the event relative to start_time (float).
                 - 'type': 'mousedown' or 'mouseup'.
-                - 'button': 0 for left, 1 for middle, 2 for right.
-                - 'pos': Tuple (x, y) of the mouse position at the time of the event.
+                - 'button': 0 for left button, 1 for middle button, 2 for right button.
+                - 'pos': (x, y) position of the mouse at the time of the event.
         """
         return self.mouse_clicks
-    
-    def reset(self):
-        self.key_presses = []
-        self.mouse_clicks = []
-        self.should_exit = False
+
+    def set_position(self, x, y):
+        """
+        Set the mouse cursor position.
+
+        Parameters:
+            x (int): x-coordinate to move the cursor to.
+            y (int): y-coordinate to move the cursor to.
+        """
+        pygame.mouse.set_pos((x, y))
+        # Update internal mouse position
+        self.mouse_position = (x, y)
+
+    def clear_events(self):
+        """
+        Clear the lists of key presses and mouse clicks.
+
+        This can be used to reset the stored events after they've been processed.
+        """
+        self.key_presses.clear()
+        self.mouse_clicks.clear()
         self.key_down_events.clear()
-        self.reset_timer()
+        self.key_up_events.clear()
 
 
 class Scrollbar:

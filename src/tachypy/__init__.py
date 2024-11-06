@@ -10,7 +10,7 @@ from .shapes import (
     center_rect_on_point,
 )
 from .responses import ResponseHandler, Scrollbar
-from .text import Text
+from .text import Text, TextBox
 from .psychophysics import (
     fabriquer_grille_sin,
     fabriquer_gabor,
