@@ -82,7 +82,7 @@ for ii in range(nb_frames_per_cycle):
 textures = [Texture(stimulus) for stimulus in film]
 
 # define the position in which the Texture will be mapped.
-dest_rect = center_rect_on_point([0, 0, nx-100, nx-100], [center_x, center_y])
+dest_rect = center_rect_on_point([0, 0, nx-1, nx-1], [center_x, center_y])
 
 # Main loop
 running = True
