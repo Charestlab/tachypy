@@ -13,6 +13,7 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=requires,
+    python_requires='>=3.6',
     author='Ian Charest and Frederic Gosselin',
     author_email='charest.ian@gmail.com',
     description='A package for OpenGL drawing using Pygame.',
@@ -21,6 +22,12 @@ setup(
     url='https://github.com/CharestLab/tachypy',
     classifiers=[
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
         'Operating System :: OS Independent',
     ],
 )
