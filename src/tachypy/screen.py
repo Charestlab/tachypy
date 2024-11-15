@@ -73,6 +73,10 @@ class Screen:
         pygame.event.set_grab(True)
 
         # Initialize OpenGL
+        glViewport(0, 0, self.width, self.height)  # Set the viewport to match the screen dimensions
+
+
+        # Initialize OpenGL
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         gluOrtho2D(0, self.width, self.height, 0)
@@ -81,8 +85,18 @@ class Screen:
 
         glClearColor(0.5, 0.5, 0.5, 1)  # Gray background
 
-        # Disable depth testing once during setup
+        # Clear the color buffer initially (sets the background color for the first frame)
+        glClear(GL_COLOR_BUFFER_BIT)
+
+        # Disable depth testing since it's not needed for 2D rendering
         glDisable(GL_DEPTH_TEST)
+
+        # Disable textures initially to avoid unexpected textures appearing
+        glDisable(GL_TEXTURE_2D)
+
+        # Enable blending for transparency handling (optional, but useful for 2D graphics)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
     def flip(self):
         """
