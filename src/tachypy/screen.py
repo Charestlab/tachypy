@@ -141,8 +141,8 @@ class Screen:
         # Use OpenGL to clear the screen with the specified color
         glBindTexture(GL_TEXTURE_2D, 0)
         glDisable(GL_TEXTURE_2D)
-        glDisable(GL_BLEND)
-        glBlendFunc(GL_ONE, GL_ZERO)
+        # glDisable(GL_BLEND)
+        # glBlendFunc(GL_ONE, GL_ZERO)
         glDisable(GL_DEPTH_TEST)
         glClearColor(color[0]/255.0, color[1]/255.0, color[2]/255.0, 1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)

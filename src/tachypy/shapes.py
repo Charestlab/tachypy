@@ -34,6 +34,10 @@ class Circle:
         self.color = np.asarray(color) / 255.0  # Normalize color to [0, 1]
 
     def draw(self):
+        
+        # Set the texture environment mode to GL_MODULATE
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
+
         # Set the color for the circle
         glColor3f(*self.color)
 
@@ -89,6 +93,8 @@ class Rectangle:
 
     def draw(self):
 
+        # Set the texture environment mode to GL_MODULATE
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
         glColor3f(*self.color)
 
         if self.fill:
@@ -138,7 +144,9 @@ class Line:
         self.thickness = thickness
 
     def draw(self):
-
+        
+        # Set the texture environment mode to GL_MODULATE
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
         glColor3f(*self.color)
         glLineWidth(self.thickness)
         glBegin(GL_LINES)

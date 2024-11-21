@@ -228,7 +228,7 @@ class ResponseHandler:
         self.mouse_clicks.clear()
         self.key_down_events.clear()
         self.key_up_events.clear()
-
+        self.should_exit = False
         # Get events from Pygame event queue
         self.events = pygame.event.get()
 

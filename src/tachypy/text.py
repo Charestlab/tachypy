@@ -5,70 +5,171 @@ from OpenGL.GLU import *
 
 
 class Text:
-    def __init__(self, text, position, font, font_size, color=(0, 0, 0)):
+    def __init__(self, text, dest_rect=None, font_name='Helvetica', font_size=24, color=(0, 0, 0)):
         """
         Initialize the Text object.
 
         Parameters:
-            text: The text string to render.
-            position: Tuple (x, y) specifying the position.
-            font: Pygame font object.
-            color: Color of the text as an RGB tuple.
+            text: 
+                The text string to render.
+            dest_rect : list or tuple
+                A rectangle [x1, y1, x2, y2] defining the text bounding box. Optional.
+            font_name: 
+                the name of the font.
+            color: 
+                Color of the text as an RGB tuple.
+            
         """
-        pygame.font.init()
-        self.font = pygame.font.SysFont(font, font_size)
+        pygame.font.init()  # Initialize fonts
         self.text = text
-        self.position = position
+        self.font_name = font_name
+        self.font_size = font_size
         self.color = color
+        self.dest_rect = dest_rect
         self.texture_id = None
-        self.width = 0
-        self.height = 0
-        self.update_texture()
+        self.surface = None
 
-    def update_texture(self):
-        # Render the text onto a Pygame surface
-        text_surface = self.font.render(self.text, True, self.color)
-        self.width, self.height = text_surface.get_size()
-        # Convert the surface to a string buffer
-        text_data = pygame.image.tostring(text_surface, "RGBA", True)
-        # Generate a texture ID if not already done
-        if self.texture_id is None:
-            self.texture_id = glGenTextures(1)
-        # Bind the texture
+        # Internal state for multiline handling
+        self.lines = []  # Split lines will be stored here
+        self.line_spacing = 4  # Space between lines in pixels
+
+        self._split_text_into_lines()
+        self._adjust_font_size_to_fit()
+        self._generate_surface()
+
+    def _generate_surface(self):
+        font = pygame.font.SysFont(self.font_name, self.font_size)
+        line_surfaces = [font.render(line, True, self.color) for line in self.lines]
+        max_width = max(surface.get_width() for surface in line_surfaces)
+        total_height = sum(surface.get_height() for surface in line_surfaces) + (len(line_surfaces) - 1) * self.line_spacing
+
+        self.surface = pygame.Surface((max_width, total_height), pygame.SRCALPHA)
+        self.surface.fill((0, 0, 0, 0))  # Fully transparent background
+
+        y_offset = 0
+        for surface in line_surfaces:
+            self.surface.blit(surface, (0, y_offset))
+            y_offset += surface.get_height() + self.line_spacing
+
+
+        # Save surface for debugging
+        pygame.image.save(self.surface, "debug_text.png")
+
+        self._generate_texture()
+
+    def _generate_texture(self):
+        if self.texture_id:
+            glDeleteTextures([self.texture_id])
+
+        self.texture_id = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
-        # Upload the texture data
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.width, self.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, text_data)
-        # Set texture parameters
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        # Unbind the texture
+
+        surface_data = pygame.image.tostring(self.surface, "RGBA", True)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.surface.get_width(),
+                     self.surface.get_height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, surface_data)
+
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
         glBindTexture(GL_TEXTURE_2D, 0)
 
+
+    def _split_text_into_lines(self):
+        """
+        Split the text into multiple lines based on the rectangle width.
+        """
+        if not self.dest_rect:
+            self.lines = [self.text]
+            return
+
+        x1, y1, x2, y2 = self.dest_rect
+        max_width = x2 - x1
+
+        font = pygame.font.SysFont(self.font_name, self.font_size)
+        words = self.text.split(' ')
+        lines = []
+        current_line = []
+
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            if font.size(test_line)[0] <= max_width:
+                current_line.append(word)
+            else:
+                lines.append(' '.join(current_line))
+                current_line = [word]
+
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        self.lines = lines
+
+    def _adjust_font_size_to_fit(self):
+        """
+        Adjust the font size to fit the text within the rectangle.
+        """
+        if not self.dest_rect:
+            return
+
+        x1, y1, x2, y2 = self.dest_rect
+        max_height = y2 - y1
+
+        font = pygame.font.SysFont(self.font_name, self.font_size)
+        total_height = len(self.lines) * (font.get_height() + self.line_spacing)
+
+        while total_height > max_height:
+            self.font_size -= 1
+            font = pygame.font.SysFont(self.font_name, self.font_size)
+            self._split_text_into_lines()
+            total_height = len(self.lines) * (font.get_height() + self.line_spacing)
+
+        self._generate_surface()
     def draw(self):
-        # Enable blending for transparency
+        """
+        Draw the text on the screen.
+        """
+        if not self.dest_rect:
+            raise ValueError("dest_rect must be set to draw text.")
+
+        x1, y1, x2, y2 = self.dest_rect
+        width, height = self.surface.get_width(), self.surface.get_height()
+
+        # Enable blending and set the blend function
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        # Bind the texture
-        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+
+        # Enable textures
         glEnable(GL_TEXTURE_2D)
-        glColor3f(1.0, 1.0, 1.0)
-        x, y = self.position
-        # Adjust for texture size to center the text
-        x1 = x - self.width / 2
-        y1 = y - self.height / 2
-        x2 = x + self.width / 2
-        y2 = y + self.height / 2
-        # Draw textured quad
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+
+        # Set the texture environment mode
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE)
+
+        # Draw the textured quad
         glBegin(GL_QUADS)
-        glTexCoord2f(0, 1); glVertex2f(x1, y1)
-        glTexCoord2f(1, 1); glVertex2f(x2, y1)
-        glTexCoord2f(1, 0); glVertex2f(x2, y2)
-        glTexCoord2f(0, 0); glVertex2f(x1, y2)
+        glTexCoord2f(0, 1); glVertex2f(x1, y1)  # Top-left
+        glTexCoord2f(1, 1); glVertex2f(x1 + width, y1)  # Top-right
+        glTexCoord2f(1, 0); glVertex2f(x1 + width, y1 + height)  # Bottom-right
+        glTexCoord2f(0, 0); glVertex2f(x1, y1 + height)  # Bottom-left
         glEnd()
-        # Disable textures and blending
-        glDisable(GL_TEXTURE_2D)
+
+        # Unbind texture and disable states
         glBindTexture(GL_TEXTURE_2D, 0)
+        glDisable(GL_TEXTURE_2D)
         glDisable(GL_BLEND)
+
+    def set_text(self, new_text):
+        self.text = new_text
+        self._split_text_into_lines()
+        self._adjust_font_size_to_fit()
+        self._generate_surface()
+
+    def set_dest_rect(self, dest_rect):
+        self.dest_rect = dest_rect
+        self._split_text_into_lines()
+        self._adjust_font_size_to_fit()
+
 
 
 class TextBox:

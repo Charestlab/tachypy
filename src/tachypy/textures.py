@@ -54,6 +54,9 @@ class Texture:
         if x2<=x1 or y2<=y1:
             raise ValueError("x2 must be equal or smaller than x1 an y2 must be equal or smaller than y1.")
 
+        # Enable texturing modulations        
+        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
+
         # Open all colour channels.
         glColor3f(1.0, 1.0, 1.0)
 
