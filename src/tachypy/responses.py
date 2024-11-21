@@ -229,6 +229,9 @@ class ResponseHandler:
         self.key_down_events.clear()
         self.key_up_events.clear()
 
+        # Get events from Pygame event queue
+        self.events = pygame.event.get()
+
 
 class Scrollbar:
     def __init__(self,
