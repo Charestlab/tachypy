@@ -5,7 +5,7 @@ from OpenGL.GLU import *
 
 
 class Text:
-    def __init__(self, text, dest_rect=None, font_name='Helvetica', font_size=24, color=(0, 0, 0)):
+    def __init__(self, text, font_name='Helvetica', font_size=24, color=(255, 255, 255), dest_rect=None, line_spacing=4):
         """
         Initialize the Text object.
 
@@ -16,11 +16,13 @@ class Text:
                 A rectangle [x1, y1, x2, y2] defining the text bounding box. Optional.
             font_name: 
                 the name of the font.
+            font_size:
+                The font size in points.
             color: 
                 Color of the text as an RGB tuple.
             
         """
-        pygame.font.init()  # Initialize fonts
+        pygame.font.init()
         self.text = text
         self.font_name = font_name
         self.font_size = font_size
@@ -28,36 +30,55 @@ class Text:
         self.dest_rect = dest_rect
         self.texture_id = None
         self.surface = None
+        self.line_spacing = line_spacing
 
-        # Internal state for multiline handling
-        self.lines = []  # Split lines will be stored here
-        self.line_spacing = 4  # Space between lines in pixels
-
+        self.lines = []
         self._split_text_into_lines()
-        self._adjust_font_size_to_fit()
         self._generate_surface()
 
-    def _generate_surface(self):
+    def _split_text_into_lines(self):
+        """Split the text into multiple lines that fit within the dest_rect width."""
+        if not self.dest_rect:
+            raise ValueError("dest_rect must be set to split text into lines.")
+
         font = pygame.font.SysFont(self.font_name, self.font_size)
+        max_width = self.dest_rect[2] - self.dest_rect[0]  # Width of the rectangle
+
+        words = self.text.split()
+        line = ""
+        self.lines = []
+        for word in words:
+            test_line = f"{line} {word}".strip()
+            if font.size(test_line)[0] <= max_width:
+                line = test_line
+            else:
+                self.lines.append(line)
+                line = word
+        if line:
+            self.lines.append(line)
+
+    def _generate_surface(self):
+        """Generate a Pygame surface with the text rendered."""
+        font = pygame.font.SysFont(self.font_name, self.font_size)
+
         line_surfaces = [font.render(line, True, self.color) for line in self.lines]
         max_width = max(surface.get_width() for surface in line_surfaces)
         total_height = sum(surface.get_height() for surface in line_surfaces) + (len(line_surfaces) - 1) * self.line_spacing
 
+        # Create the surface with an appropriate size
         self.surface = pygame.Surface((max_width, total_height), pygame.SRCALPHA)
-        self.surface.fill((0, 0, 0, 0))  # Fully transparent background
+        self.surface.fill((0, 0, 0, 0))  # Transparent background
 
+        # Draw each line on the surface
         y_offset = 0
         for surface in line_surfaces:
             self.surface.blit(surface, (0, y_offset))
             y_offset += surface.get_height() + self.line_spacing
 
-
-        # Save surface for debugging
-        pygame.image.save(self.surface, "debug_text.png")
-
         self._generate_texture()
 
     def _generate_texture(self):
+        """Upload the Pygame surface as an OpenGL texture."""
         if self.texture_id:
             glDeleteTextures([self.texture_id])
 
@@ -75,83 +96,40 @@ class Text:
 
         glBindTexture(GL_TEXTURE_2D, 0)
 
-
-    def _split_text_into_lines(self):
-        """
-        Split the text into multiple lines based on the rectangle width.
-        """
-        if not self.dest_rect:
-            self.lines = [self.text]
-            return
-
-        x1, y1, x2, y2 = self.dest_rect
-        max_width = x2 - x1
-
-        font = pygame.font.SysFont(self.font_name, self.font_size)
-        words = self.text.split(' ')
-        lines = []
-        current_line = []
-
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            if font.size(test_line)[0] <= max_width:
-                current_line.append(word)
-            else:
-                lines.append(' '.join(current_line))
-                current_line = [word]
-
-        if current_line:
-            lines.append(' '.join(current_line))
-
-        self.lines = lines
-
-    def _adjust_font_size_to_fit(self):
-        """
-        Adjust the font size to fit the text within the rectangle.
-        """
-        if not self.dest_rect:
-            return
-
-        x1, y1, x2, y2 = self.dest_rect
-        max_height = y2 - y1
-
-        font = pygame.font.SysFont(self.font_name, self.font_size)
-        total_height = len(self.lines) * (font.get_height() + self.line_spacing)
-
-        while total_height > max_height:
-            self.font_size -= 1
-            font = pygame.font.SysFont(self.font_name, self.font_size)
-            self._split_text_into_lines()
-            total_height = len(self.lines) * (font.get_height() + self.line_spacing)
-
-        self._generate_surface()
     def draw(self):
         """
-        Draw the text on the screen.
+        Draw the text on the screen, centered within the dest_rect.
         """
         if not self.dest_rect:
             raise ValueError("dest_rect must be set to draw text.")
 
         x1, y1, x2, y2 = self.dest_rect
-        width, height = self.surface.get_width(), self.surface.get_height()
+        rect_width = x2 - x1
+        rect_height = y2 - y1
 
-        # Enable blending and set the blend function
+        # Center the text within the rectangle
+        texture_width = self.surface.get_width()
+        texture_height = self.surface.get_height()
+        center_x = x1 + rect_width // 2
+        center_y = y1 + rect_height // 2
+        x_start = center_x - texture_width // 2
+        y_start = center_y - texture_height // 2
+
+        # Enable blending and set blend function for transparency
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        # Enable textures
+        # Bind the texture and draw the quad
         glEnable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
 
-        # Set the texture environment mode
         glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE)
 
-        # Draw the textured quad
         glBegin(GL_QUADS)
-        glTexCoord2f(0, 1); glVertex2f(x1, y1)  # Top-left
-        glTexCoord2f(1, 1); glVertex2f(x1 + width, y1)  # Top-right
-        glTexCoord2f(1, 0); glVertex2f(x1 + width, y1 + height)  # Bottom-right
-        glTexCoord2f(0, 0); glVertex2f(x1, y1 + height)  # Bottom-left
+        glTexCoord2f(0, 1); glVertex2f(x_start, y_start)  # Top-left
+        glTexCoord2f(1, 1); glVertex2f(x_start + texture_width, y_start)  # Top-right
+        glTexCoord2f(1, 0); glVertex2f(x_start + texture_width, y_start + texture_height)  # Bottom-right
+        glTexCoord2f(0, 0); glVertex2f(x_start, y_start + texture_height)  # Bottom-left
         glEnd()
 
         # Unbind texture and disable states
@@ -160,15 +138,21 @@ class Text:
         glDisable(GL_BLEND)
 
     def set_text(self, new_text):
+        """
+        Update the text and regenerate the surface and texture.
+        """
         self.text = new_text
         self._split_text_into_lines()
-        self._adjust_font_size_to_fit()
         self._generate_surface()
 
     def set_dest_rect(self, dest_rect):
+        """
+        Update the destination rectangle and regenerate the surface if needed.
+        """
         self.dest_rect = dest_rect
         self._split_text_into_lines()
-        self._adjust_font_size_to_fit()
+        self._generate_surface()
+        
 
 
 
