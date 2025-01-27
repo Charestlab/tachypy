@@ -35,7 +35,12 @@
 
 ## Installation
 
-You can install TachyPy directly from GitHub:
+You can install TachyPy from pipy:
+```bash
+pip install tachypy
+```
+
+You can also install TachyPy directly from GitHub:
 
 ```bash
 pip install git+https://github.com/Charestlab/tachypy.git
