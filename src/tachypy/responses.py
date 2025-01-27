@@ -3,7 +3,7 @@ import numpy as np
 import pygame
 from OpenGL.GL import *
 from OpenGL.GLU import *
-from tachypy.shapes import Line  # Assuming Line class is in your visuals module
+from tachypy.shapes import Line, center_rect_on_point  # Assuming Line class is in your visuals module
 from tachypy.text import Text     # Assuming you have a Text class
 import time
 # responses.py
@@ -320,20 +320,30 @@ class Scrollbar:
             color=self.end_color
         )
 
+        left_text_pos = center_rect_on_point(
+            [0, 0, 500, 500], 
+            [self.center_x - self.half_bar_length, self.position_y + self.half_end_height + self.text_offset]
+        )
+
+        right_text_pos = center_rect_on_point(
+            [0, 0, 500, 500], 
+            [self.center_x + self.half_bar_length, self.position_y + self.half_end_height + self.text_offset]
+        )
+
         # Create the text labels
         self.text_left_label = Text(
             text=self.text_left,
-            position=(self.center_x - self.half_bar_length, self.position_y + self.half_end_height + self.text_offset),
-            font=self.font_name,
+            font_name=self.font_name,
             font_size=self.text_size,
-            color=self.text_color
+            color=self.text_color,
+            dest_rect = left_text_pos
         )
         self.text_right_label = Text(
             text=self.text_right,
-            position=(self.center_x + self.half_bar_length, self.position_y + self.half_end_height + self.text_offset),
-            font=self.font_name,
+            font_name=self.font_name,
             font_size=self.text_size,
-            color=self.text_color
+            color=self.text_color,
+            dest_rect = right_text_pos
         )
 
         # Mobile part (draggable line)
