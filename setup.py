@@ -9,7 +9,7 @@ with open('requirements.txt') as reqfile:
 
 setup(
     name='tachypy',
-    version='0.1.2',
+    version='0.1.3',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=requires,

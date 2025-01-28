@@ -86,7 +86,7 @@ class Screen:
         glClearColor(0.5, 0.5, 0.5, 1)  # Gray background
 
         # Clear the color buffer initially (sets the background color for the first frame)
-        glClear(GL_COLOR_BUFFER_BIT)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         # Disable depth testing since it's not needed for 2D rendering
         glDisable(GL_DEPTH_TEST)
@@ -97,6 +97,12 @@ class Screen:
         # Enable blending for transparency handling (optional, but useful for 2D graphics)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        self.flip()  # Flip the screen to show the initial frame
+
+        # Prime the event queue to avoid glitches during the first call
+        pygame.event.get()
+
 
     def flip(self):
         """
