@@ -9,6 +9,7 @@ class Draggable:
         - draw()
         - hit_test(x, y) -> bool
         - move_by(dx, dy)
+        - get_bounds() -> (x1, y1, x2, y2)
     """
     def __init__(self, target):
         self.target = target
