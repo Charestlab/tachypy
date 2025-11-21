@@ -2,6 +2,10 @@
 
 from .screen import Screen
 from .textures import Texture
+from .draggable import (
+    Draggable,
+    DraggableManager
+)
 from .shapes import (
     Circle,
     Rectangle,

@@ -24,6 +24,7 @@ class Circle:
         self.set_color(color)
         self.num_segments = int(num_segments)
 
+
     def set_center(self, center):
         self.center = np.asarray(center, dtype=np.float32)
 
@@ -75,6 +76,15 @@ class Rectangle:
         self.fill = fill
         self.thickness = thickness
         self.set_color(color)
+    
+    def move_by(self, dx, dy):
+        self.x1 += dx
+        self.x2 += dx
+        self.y1 += dy
+        self.y2 += dy
+
+    def hit_test(self, x, y):
+        return (self.x1 <= x <= self.x2) and (self.y1 <= y <= self.y2)
 
     def set_rect(self, a_rect):
         a_rect = np.asarray(a_rect)
@@ -130,6 +140,39 @@ class Line:
         self.end_point = np.asarray(end_point, dtype=np.float32)
         self.thickness = thickness
         self.set_color(color)
+
+    def move_by(self, dx, dy):
+        """Translate the line by (dx, dy)."""
+
+        self.start_point[0] += dx
+        self.start_point[1] += dy
+        self.end_point[0] += dx
+        self.end_point[1] += dy
+
+    def hit_test(self, x, y, tolerance=5.0):
+        """
+        Return True if (x, y) is within tolerance units of the line segment.
+        Coord system = même que tes vertices (OpenGL 2D).
+        """
+
+        p = np.array([x, y], dtype=np.float32)
+        a = self.start_point
+        b = self.end_point
+        ab = b - a
+        ab_len2 = np.dot(ab, ab)
+
+        if ab_len2 == 0:
+            # Ligne dégénérée : utiliser distance au point
+            dist2 = np.dot(p - a, p - a)
+            return dist2 <= tolerance * tolerance
+
+        # projection scalaire clippée sur le segment [0, 1]
+        t = np.dot(p - a, ab) / ab_len2
+        t = max(0.0, min(1.0, t))
+        closest = a + t * ab
+        dist2 = np.dot(p - closest, p - closest)
+        
+        return dist2 <= tolerance * tolerance
 
     def set_start_point(self, point):
         self.start_point = np.asarray(point, dtype=np.float32)
