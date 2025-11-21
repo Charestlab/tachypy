@@ -93,6 +93,10 @@ class Texture:
         """
         x1, y1, x2, y2 = self.rect
         return (x1 <= x <= x2) and (y1 <= y <= y2)
+    
+    def get_bounds(self):
+        x1, y1, x2, y2 = self.rect
+        return float(x1), float(y1), float(x2), float(y2)
 
     # ---------- Dessin ----------
 

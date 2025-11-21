@@ -34,6 +34,22 @@ class Circle:
     def set_color(self, color):
         self.color = np.asarray(color) / 255.0  # Normalize color to [0, 1]
 
+    def hit_test(self, x, y):
+        dx = x - self.center[0]
+        dy = y - self.center[1]
+        return dx*dx + dy*dy <= self.radius * self.radius
+    
+    def move_by(self, dx, dy):
+        self.center[0] += dx
+        self.center[1] += dy
+
+    def get_bounds(self):
+        x1 = self.center[0] - self.radius
+        y1 = self.center[1] - self.radius
+        x2 = self.center[0] + self.radius
+        y2 = self.center[1] + self.radius
+        return float(x1), float(y1), float(x2), float(y2)
+
     def draw(self):
         
         # Set the texture environment mode to GL_MODULATE
@@ -100,6 +116,12 @@ class Rectangle:
 
     def set_color(self, color):
         self.color = np.asarray(color) / 255.0
+    
+    def get_bounds(self):
+        """
+        Return the bounding rectangle of the circle as (x1, y1, x2, y2).
+        """
+        return float(self.x1), float(self.y1), float(self.x2), float(self.y2)
 
     def draw(self):
 

@@ -19,7 +19,7 @@ class Draggable:
         self.target.draw()
 
 class DraggableManager:
-    def __init__(self, button_index=0):
+    def __init__(self, button_index=0, screen_width=None, screen_height=None):
         """
         Classe gérant plusieurs Draggables.
         Input:
@@ -27,6 +27,7 @@ class DraggableManager:
             (cohérent avec ResponseHandler). default = 0 (gauche)
         """
         self.button_index = button_index
+        self.bounds = (0, 0, screen_width, screen_height)
         self.draggables = []
         self.active = None  # Draggable actuellement en drag
 
@@ -62,11 +63,23 @@ class DraggableManager:
                             # C'est celui-là qu'on prend
                             self.active = d
                             d.dragging = True
-                            d._last_mouse_pos = (mx, my)
 
-                            # Le monter au-dessus : le mettre en dernier
+                            # Monter en haut (z-index)
                             self.draggables.remove(d)
                             self.draggables.append(d)
+
+                            # Calculer le centre de l'objet
+                            x1, y1, x2, y2 = d.target.get_bounds()
+                            cx = (x1 + x2) / 2.0
+                            cy = (y1 + y2) / 2.0
+
+                            # Recentrer la souris sur l'objet
+                            # (on suppose que tu passes le response_handler à update_from_response)
+                            response_handler.set_position(int(cx), int(cy))
+
+                            # On peut considérer que la "dernière position" de la souris est ce centre
+                            d._last_mouse_pos = (cx, cy)
+
                             break
 
             elif event.type == pygame.MOUSEBUTTONUP:
@@ -82,14 +95,30 @@ class DraggableManager:
             if current_pos is None:
                 return
 
-            if self.active._last_mouse_pos is None:
-                self.active._last_mouse_pos = current_pos
-                return
-
-            lx, ly = self.active._last_mouse_pos
+            lx, ly = self.active._last_mouse_pos or current_pos
             cx, cy = current_pos
-            dx, dy = cx - lx, cy - ly
+
+            # Récupère bounding box actuel
+            x1, y1, x2, y2 = self.active.target.get_bounds()
+
+            # Dimensions de l'objet
+            w = x2 - x1
+            h = y2 - y1
+
+            min_x, min_y, max_x, max_y = self.bounds
+
+            # 🧠 Clamp de la "souris utile"
+            # pour que dragger ne sorte jamais des limits.
+            # La souris "virtuelle" est centrée sur l'objet
+            cx_clamped = max(min_x + w/2, min(cx, max_x - w/2))
+            cy_clamped = max(min_y + h/2, min(cy, max_y - h/2))
+
+            # dx, dy à partir de la souris clampée
+            dx = cx_clamped - lx
+            dy = cy_clamped - ly
 
             if dx != 0 or dy != 0:
                 self.active.target.move_by(dx, dy)
-                self.active._last_mouse_pos = current_pos
+
+            # Mise à jour logique
+            self.active._last_mouse_pos = (cx_clamped, cy_clamped)
