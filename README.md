@@ -14,7 +14,7 @@
 - [Modules](#modules)
   - [Screen](#screen)
   - [Texture](#texture)
-  - [Visuals](#visuals)
+  - [Shapes](#shapes)
   - [Responses](#responses)
   - [Psychophysics](#psychophysics)
 - [Contributing](#contributing)
@@ -270,17 +270,16 @@ texture.bind()
 texture.unbind()
 ```
 
-## Visuals
+## Shapes
 
-Provides utility functions for drawing basic shapes and stimuli.
+Provides classes for drawing basic shapes and stimuli.
 
-**Functions**:
+**Classes**:
 
-- draw_rectangle(a_rect, fill=True, thickness=1.0, color=(255, 255, 255)): Draws a rectangle.
-- draw_line(pts1, pts2, thickness=1.0, color=(255, 0, 0)): Draws a line between two points.
-- draw_fixation_cross(center_pts, half_width, half_height, thickness=1.0, color=(255, 0, 0)): Draws a fixation cross.
-- center_rect_on_point(a_rect, a_point): Centers a rectangle on a given point.
-- draw_stimulus(texture, a_rect): Draws a texture on the screen within the specified rectangle.
+- Circle.
+- Line.
+- Rectangle.
+- FixationCross.
 
 ## Responses
 
