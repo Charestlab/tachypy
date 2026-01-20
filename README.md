@@ -277,7 +277,9 @@ Another example when speed and memory management is crucial:
 from tachypy import Texture
 import numpy as np
 
-images = np.random.rand(n_insequence, 128, 128, 3)
+H, W = [256]*2 # say we have 256 pixels square images
+
+images = np.random.rand(n_insequence, H, W, 3) # that are also RGB.
 
 n_insequence = 200
 blank = np.zeros((H, W, 3), dtype=np.uint8)
