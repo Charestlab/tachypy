@@ -289,9 +289,9 @@ In the code above, we pre-initialise a set of 200 textures, perhaps an RSVP or o
 
 ```python
 for im, ct in enumerate(images):
-    textures[c].update(im)
+    textures[ct].update(im)
 ```
-Now whenever we start a new trial, in the waiting time, we can simply update the texture buffer, preventing any GPU leakage that could otherwise happen if we don't perform rigid garbage collection on every loop. The update method prevents our GPU from overload.
+Now whenever we start a new trial, in the waiting time, we can simply update the texture buffer with the new set of images for that trial, preventing any GPU leakage that could otherwise happen if we don't perform rigid garbage collection on every trial loop. The update method prevents our GPU from overload. This is especially useful when working with high refresh rate monitors (e.g. 480Hz>)
 
 ```python
 for t in texs_pos + texs_neg + texs_bis:
