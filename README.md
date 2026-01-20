@@ -294,7 +294,7 @@ for im, ct in enumerate(images):
 Now whenever we start a new trial, in the waiting time, we can simply update the texture buffer with the new set of images for that trial, preventing any GPU leakage that could otherwise happen if we don't perform rigid garbage collection on every trial loop. The update method prevents our GPU from overload. This is especially useful when working with high refresh rate monitors (e.g. 480Hz>)
 
 ```python
-for t in texs_pos + texs_neg + texs_bis:
+for t in textures:
     t.delete()
 ```
 When the experiment is done, simply delete the textures, and voila.
