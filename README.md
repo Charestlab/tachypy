@@ -254,6 +254,7 @@ Features:
 
 - Load textures into OpenGL.
 - Bind and unbind textures for rendering.
+- Update a texture with an equivalent shaped image.
 - Delete textures when no longer needed.
 
 Example:
@@ -269,6 +270,32 @@ texture.bind()
 # Render with the texture
 texture.unbind()
 ```
+
+Another example when speed and memory management is crucial:
+
+```python
+from tachypy import Texture
+import numpy as np
+
+images = np.random.rand(n_insequence, 128, 128, 3)
+
+n_insequence = 200
+blank = np.zeros((H, W, 3), dtype=np.uint8)
+textures = [Texture(blank.copy()) for _ in range(n_in_sequence)]
+```
+In the code above, we pre-initialise a set of 200 textures, perhaps an RSVP or other psychophysics sequence.
+
+```python
+for im, ct in enumerate(images):
+    textures[c].update(im)
+```
+Now whenever we start a new trial, in the waiting time, we can simply update the texture buffer, preventing any GPU leakage that could otherwise happen if we don't perform rigid garbage collection on every loop. The update method prevents our GPU from overload.
+
+```python
+for t in texs_pos + texs_neg + texs_bis:
+    t.delete()
+```
+When the experiment is done, simply delete the textures, and voila.
 
 ## Shapes
 
