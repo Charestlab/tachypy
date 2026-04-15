@@ -28,7 +28,10 @@ class DraggableManager:
             (cohérent avec ResponseHandler). default = 0 (gauche)
         """
         self.button_index = button_index
-        self.bounds = (0, 0, screen_width, screen_height)
+        if screen_width is None or screen_height is None:
+            self.bounds = None
+        else:
+            self.bounds = (0, 0, screen_width, screen_height)
         self.draggables = []
         self.active = None  # Draggable actuellement en drag
 
@@ -106,13 +109,14 @@ class DraggableManager:
             w = x2 - x1
             h = y2 - y1
 
-            min_x, min_y, max_x, max_y = self.bounds
-
-            # 🧠 Clamp de la "souris utile"
-            # pour que dragger ne sorte jamais des limits.
-            # La souris "virtuelle" est centrée sur l'objet
-            cx_clamped = max(min_x + w/2, min(cx, max_x - w/2))
-            cy_clamped = max(min_y + h/2, min(cy, max_y - h/2))
+            if self.bounds is None:
+                cx_clamped = cx
+                cy_clamped = cy
+            else:
+                min_x, min_y, max_x, max_y = self.bounds
+                # Clamp la souris pour garder l'objet dans les limites.
+                cx_clamped = max(min_x + w/2, min(cx, max_x - w/2))
+                cy_clamped = max(min_y + h/2, min(cy, max_y - h/2))
 
             # dx, dy à partir de la souris clampée
             dx = cx_clamped - lx

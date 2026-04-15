@@ -1,4 +1,3 @@
-import numpy as np
 import pygame
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -39,29 +38,40 @@ class Text:
     def _split_text_into_lines(self):
         """Split the text into multiple lines that fit within the dest_rect width."""
         if not self.dest_rect:
-            raise ValueError("dest_rect must be set to split text into lines.")
+            self.lines = self.text.splitlines() or [self.text]
+            if not self.lines:
+                self.lines = [""]
+            return
 
         font = pygame.font.SysFont(self.font_name, self.font_size)
         max_width = self.dest_rect[2] - self.dest_rect[0]  # Width of the rectangle
 
-        words = self.text.split()
-        line = ""
         self.lines = []
-        for word in words:
-            test_line = f"{line} {word}".strip()
-            if font.size(test_line)[0] <= max_width:
-                line = test_line
-            else:
+        raw_lines = self.text.splitlines() or [""]
+        for raw_line in raw_lines:
+            if raw_line == "":
+                self.lines.append("")
+                continue
+
+            words = raw_line.split()
+            line = ""
+            for word in words:
+                test_line = f"{line} {word}".strip()
+                if font.size(test_line)[0] <= max_width or line == "":
+                    line = test_line
+                else:
+                    self.lines.append(line)
+                    line = word
+            if line:
                 self.lines.append(line)
-                line = word
-        if line:
-            self.lines.append(line)
 
     def _generate_surface(self):
         """Generate a Pygame surface with the text rendered."""
         font = pygame.font.SysFont(self.font_name, self.font_size)
 
-        line_surfaces = [font.render(line, True, self.color) for line in self.lines]
+        lines = self.lines if self.lines else [""]
+        # Render empty lines as spaces so we still get a stable line height.
+        line_surfaces = [font.render(line if line else " ", True, self.color) for line in lines]
         max_width = max(surface.get_width() for surface in line_surfaces)
         total_height = sum(surface.get_height() for surface in line_surfaces) + (len(line_surfaces) - 1) * self.line_spacing
 
@@ -152,6 +162,14 @@ class Text:
         self.dest_rect = dest_rect
         self._split_text_into_lines()
         self._generate_surface()
+
+    def delete(self):
+        """
+        Delete the OpenGL texture associated with this text object.
+        """
+        if self.texture_id:
+            glDeleteTextures([self.texture_id])
+            self.texture_id = None
         
 
 
@@ -421,4 +439,4 @@ class TextBox:
         self.text = ""
         self.cursor_position = 0
         self.submitted = False
-        self.update_texture
+        self.update_texture()

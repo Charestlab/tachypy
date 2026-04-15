@@ -59,14 +59,25 @@ class Audio:
         end_time = time.monotonic_ns() + delay
         while True:
             remaining = end_time - time.monotonic_ns()
-            if remaining <= 0:
-                break
-            elif remaining > 0.01:
-                # Sleep for a shorter duration to improve timing accuracy
-                time.sleep(0.005)
-            else:
-                # Busy-wait for higher precision
-                pass
+            sleep_duration = self._sleep_duration_for_remaining_ns(remaining)
+            if sleep_duration is None:
+                if remaining <= 0:
+                    break
+                # Busy-wait for the final few milliseconds for precision.
+                continue
+            time.sleep(sleep_duration)
+
+    @staticmethod
+    def _sleep_duration_for_remaining_ns(remaining_ns):
+        """
+        Return a sleep duration in seconds for a remaining nanosecond delay.
+        """
+        if remaining_ns <= 0:
+            return None
+        # Sleep while there is still more than ~10 ms left.
+        if remaining_ns > 10_000_000:
+            return 0.005
+        return None
 
     def stop(self):
         sd.stop()
