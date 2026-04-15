@@ -54,9 +54,40 @@ class Texture:
         glBindTexture(GL_TEXTURE_2D, 0)
         # Reset the modelview matrix to avoid any transformations being carried over
         glLoadIdentity()
+    
+    def update(self, image):
+        """
+        Update pixel data of an existing texture without reallocating GPU object.
+        image: np.ndarray (H, W, 3), uint8
+        """
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+
+        # If size matches, do sub-image update (fast, no reallocation)
+        w, h = image.shape[1], image.shape[0]
+        glTexSubImage2D(
+            GL_TEXTURE_2D,
+            0,
+            0,
+            0,
+            w,
+            h,
+            GL_RGB,
+            GL_UNSIGNED_BYTE,
+            image
+        )
+        glBindTexture(GL_TEXTURE_2D, 0)
 
     def delete(self):
-        glDeleteTextures([self.texture_id])
+        """
+        Texture deletion from GPU.
+        
+        :param self: Texture instance
+        :return: None
+        """
+        if getattr(self, "texture_id", 0):
+            glDeleteTextures([self.texture_id])
+            self.texture_id = 0
 
     # ---------- Gestion du rect / position ----------
 
