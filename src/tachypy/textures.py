@@ -1,30 +1,98 @@
-# textures.py
+"""Texture helpers for uploading and drawing image stimuli with OpenGL."""
+
+from typing import Optional, Sequence, Tuple, Union
+
 import numpy as np
-from OpenGL.GL import *
+from OpenGL.GL import (
+    GL_CLAMP_TO_EDGE,
+    GL_LINEAR,
+    GL_MODULATE,
+    GL_QUADS,
+    GL_RGB,
+    GL_TEXTURE_2D,
+    GL_TEXTURE_ENV,
+    GL_TEXTURE_ENV_MODE,
+    GL_TEXTURE_MAG_FILTER,
+    GL_TEXTURE_MIN_FILTER,
+    GL_TEXTURE_WRAP_S,
+    GL_TEXTURE_WRAP_T,
+    GL_UNPACK_ALIGNMENT,
+    GL_UNSIGNED_BYTE,
+    glBegin,
+    glBindTexture,
+    glColor3f,
+    glDeleteTextures,
+    glDisable,
+    glEnable,
+    glEnd,
+    glGenTextures,
+    glLoadIdentity,
+    glPixelStorei,
+    glTexCoord2f,
+    glTexEnvf,
+    glTexImage2D,
+    glTexParameterf,
+    glTexSubImage2D,
+    glVertex2f,
+)
+
+
+RectLike = Union[Sequence[float], Sequence[Sequence[float]]]
 
 
 class Texture:
-    def __init__(self, image, a_rect=None):
+    def __init__(self, image: np.ndarray, a_rect: Optional[RectLike] = None, rect: Optional[RectLike] = None):
         """
-        image : np.ndarray (H, W, 3), uint8
-        a_rect : [x1, y1, x2, y2] ou [[x1, y1], [x2, y2]] (optionnel)
-                 Si None, on met un rect par défaut basé sur la taille de l'image.
+        Parameters
+        ----------
+        image : np.ndarray
+            RGB image with shape (H, W, 3) and dtype convertible to uint8.
+        a_rect, rect : sequence, optional
+            Rectangle as [x1, y1, x2, y2] or [[x1, y1], [x2, y2]].
+            `rect` is the preferred name; `a_rect` is kept for compatibility.
         """
+        if rect is not None and a_rect is not None:
+            raise ValueError("Pass either `rect` or `a_rect`, not both.")
+
+        image = self._validate_image(image)
         self.texture_id = glGenTextures(1)
+        self.image_shape: Tuple[int, int, int] = image.shape
         self.load_texture(image)
 
-        if a_rect is None:
-            # Par défaut: un rectangle de la taille de l'image, à l'origine
+        rect_value = rect if rect is not None else a_rect
+        if rect_value is None:
             h, w = image.shape[0], image.shape[1]
             self.rect = np.array([0.0, 0.0, float(w), float(h)], dtype=np.float32)
         else:
-            self.set_rect(a_rect)
+            self.set_rect(rect_value)
 
-    # ---------- Gestion de la texture GPU ----------
+    @staticmethod
+    def _validate_image(image: np.ndarray) -> np.ndarray:
+        image = np.asarray(image)
+        if image.ndim != 3 or image.shape[2] != 3:
+            raise ValueError("image must have shape (H, W, 3)")
+        if image.dtype != np.uint8:
+            image = image.astype(np.uint8)
+        return image
 
-    def load_texture(self, image):
+    @staticmethod
+    def _normalize_rect(a_rect: RectLike) -> np.ndarray:
+        a_rect = np.asarray(a_rect, dtype=np.float32)
+        if a_rect.shape == (4,):
+            x1, y1, x2, y2 = a_rect
+        elif a_rect.shape == (2, 2):
+            (x1, y1), (x2, y2) = a_rect
+        else:
+            raise ValueError("A rectangle is defined as [x1, y1, x2, y2] or [[x1, y1], [x2, y2]].")
+
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError("x2 must be > x1 and y2 must be > y1.")
+
+        return np.array([x1, y1, x2, y2], dtype=np.float32)
+
+    def load_texture(self, image: np.ndarray) -> None:
+        image = self._validate_image(image)
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
-
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
 
         glTexImage2D(
@@ -36,34 +104,33 @@ class Texture:
             0,
             GL_RGB,
             GL_UNSIGNED_BYTE,
-            image
+            image,
         )
-        
+
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glBindTexture(GL_TEXTURE_2D, 0)
 
-    def bind(self):
+    def bind(self) -> None:
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
         glEnable(GL_TEXTURE_2D)
 
-    def unbind(self):
+    def unbind(self) -> None:
         glDisable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, 0)
-        # Reset the modelview matrix to avoid any transformations being carried over
         glLoadIdentity()
-    
-    def update(self, image):
-        """
-        Update pixel data of an existing texture without reallocating GPU object.
-        image: np.ndarray (H, W, 3), uint8
-        """
+
+    def update(self, image: np.ndarray) -> None:
+        """Update texture pixels in-place; shape must match the original texture."""
+        image = self._validate_image(image)
+        if image.shape != self.image_shape:
+            raise ValueError(f"image shape {image.shape} does not match existing texture shape {self.image_shape}")
+
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
 
-        # If size matches, do sub-image update (fast, no reallocation)
         w, h = image.shape[1], image.shape[0]
         glTexSubImage2D(
             GL_TEXTURE_2D,
@@ -74,93 +141,55 @@ class Texture:
             h,
             GL_RGB,
             GL_UNSIGNED_BYTE,
-            image
+            image,
         )
         glBindTexture(GL_TEXTURE_2D, 0)
 
-    def delete(self):
-        """
-        Texture deletion from GPU.
-        
-        :param self: Texture instance
-        :return: None
-        """
+    def delete(self) -> None:
         if getattr(self, "texture_id", 0):
             glDeleteTextures([self.texture_id])
             self.texture_id = 0
 
-    # ---------- Gestion du rect / position ----------
+    def set_rect(self, a_rect: RectLike) -> None:
+        self.rect = self._normalize_rect(a_rect)
 
-    def set_rect(self, a_rect):
-        """
-        a_rect: [x1, y1, x2, y2] ou [[x1, y1], [x2, y2]]
-        """
-        a_rect = np.asarray(a_rect, dtype=np.float32)
-
-        if a_rect.shape == (4,):
-            x1, y1, x2, y2 = a_rect
-        elif a_rect.shape == (2, 2):
-            (x1, y1), (x2, y2) = a_rect
-        else:
-            raise ValueError("A rectangle is defined either as [x1, y1, x2, y2] or [[x1, y1], [x2, y2]].")
-
-        if x2 <= x1 or y2 <= y1:
-            raise ValueError("x2 must be > x1 and y2 must be > y1.")
-
-        self.rect = np.array([x1, y1, x2, y2], dtype=np.float32)
-
-    def move_by(self, dx, dy):
-        """
-        Translate the rectangle by (dx, dy).
-        """
+    def move_by(self, dx: float, dy: float) -> None:
         self.rect[0] += dx
         self.rect[1] += dy
         self.rect[2] += dx
         self.rect[3] += dy
 
-    def hit_test(self, x, y):
-        """
-        Return True if (x, y) is inside the current rect.
-        """
+    def hit_test(self, x: float, y: float) -> bool:
         x1, y1, x2, y2 = self.rect
-        return (x1 <= x <= x2) and (y1 <= y <= y2)
-    
-    def get_bounds(self):
+        return bool((x1 <= x <= x2) and (y1 <= y <= y2))
+
+    def get_bounds(self) -> Tuple[float, float, float, float]:
         x1, y1, x2, y2 = self.rect
         return float(x1), float(y1), float(x2), float(y2)
 
-    # ---------- Dessin ----------
+    def draw(self, a_rect: Optional[RectLike] = None, rect: Optional[RectLike] = None) -> None:
+        """Draw the texture to `rect`/`a_rect` or to the current stored rectangle."""
+        if rect is not None and a_rect is not None:
+            raise ValueError("Pass either `rect` or `a_rect`, not both.")
 
-    def draw(self, a_rect=None):
-        """
-        Draw the texture on the screen.
-
-        Parameters:
-            a_rect: optionnel. Si fourni, met à jour temporairement la position.
-                    Si None, utilise self.rect.
-        """
-        if a_rect is not None:
-            # Met à jour la position stockée
-            self.set_rect(a_rect)
+        rect_value = rect if rect is not None else a_rect
+        if rect_value is not None:
+            self.set_rect(rect_value)
 
         x1, y1, x2, y2 = self.rect
 
-        # Enable texturing modulations        
         glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
-
-        # Open all colour channels.
         glColor3f(1.0, 1.0, 1.0)
 
-        # bind the texture to be drawn       
         self.bind()
-        
-        # map the texture to the rectangle
         glBegin(GL_QUADS)
-        glTexCoord2f(0, 0); glVertex2f(x1, y1)  # left - top
-        glTexCoord2f(1, 0); glVertex2f(x2, y1)  # right - top
-        glTexCoord2f(1, 1); glVertex2f(x2, y2)  # right - bottom
-        glTexCoord2f(0, 1); glVertex2f(x1, y2)  # left - bottom
+        glTexCoord2f(0, 0)
+        glVertex2f(x1, y1)
+        glTexCoord2f(1, 0)
+        glVertex2f(x2, y1)
+        glTexCoord2f(1, 1)
+        glVertex2f(x2, y2)
+        glTexCoord2f(0, 1)
+        glVertex2f(x1, y2)
         glEnd()
-        
-        # unbind the texture
         self.unbind()

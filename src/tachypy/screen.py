@@ -1,118 +1,117 @@
-# screen.py
+"""Display and timing utilities for TachyPy."""
 
 import os
-import pygame
-from pygame.locals import *
-from OpenGL.GL import *
-from OpenGL.GLU import *
-import numpy as np
-from screeninfo import get_monitors
 from time import monotonic_ns, sleep
+from typing import Optional, Sequence, Tuple
+
+import numpy as np
+import pygame
+from OpenGL.GL import (
+    GL_BLEND,
+    GL_COLOR_BUFFER_BIT,
+    GL_DEPTH_BUFFER_BIT,
+    GL_DEPTH_TEST,
+    GL_MODELVIEW,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_PROJECTION,
+    GL_SRC_ALPHA,
+    GL_TEXTURE_2D,
+    glBindTexture,
+    glBlendFunc,
+    glClear,
+    glClearColor,
+    glDisable,
+    glEnable,
+    glLoadIdentity,
+    glMatrixMode,
+    glViewport,
+)
+from OpenGL.GLU import gluOrtho2D
+from pygame.locals import DOUBLEBUF, FULLSCREEN, OPENGL
+from screeninfo import get_monitors
 
 
 class Screen:
-    def __init__(self, screen_number=0, width=None, height=None, fullscreen=True, vsync=True, desired_refresh_rate=60):
-        """
-        Initialize a screen using Pygame and OpenGL.
-        
-        Parameters
-        ----------
-        
-        screen_number : int
-            The number of the screen to use. Default is 0.
-            
-        width : int
-            The width of the screen. Default is the width of the monitor.
-        
-        height : int
-            The height of the screen. Default is the height of the monitor.
+    """Create and manage a Pygame window backed by an OpenGL context."""
 
-        fullscreen : bool
-            Whether to use fullscreen mode. Default is True.
-        
-        vsync : bool
-            Whether to use vertical synchronization. Default is True.
-        
-        desired_refresh_rate : int
-            The desired refresh rate of the screen in Hz. Default is 60.
-        
-        """
-        # Get monitors
+    def __init__(
+        self,
+        screen_number: int = 0,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        fullscreen: bool = True,
+        vsync: bool = True,
+        desired_refresh_rate: int = 60,
+    ):
         monitors = get_monitors()
-        
-        # Set monitor
-        if len(monitors) > screen_number:
-            monitor = monitors[screen_number]
-        else:
-            monitor = monitors[0]
-        
+        if not monitors:
+            raise RuntimeError("No monitors detected.")
+
+        safe_screen_number = max(0, int(screen_number))
+        if safe_screen_number >= len(monitors):
+            safe_screen_number = 0
+
+        monitor = monitors[safe_screen_number]
+
         self.monitor = monitor
-        self.width = width or monitor.width
-        self.height = height or monitor.height
-        self.fullscreen = fullscreen
-        self.vsync = vsync
-        self.desired_refresh_rate = desired_refresh_rate
+        self.width = int(width or monitor.width)
+        self.height = int(height or monitor.height)
+        self.fullscreen = bool(fullscreen)
+        self.vsync = bool(vsync)
+        self.desired_refresh_rate = int(desired_refresh_rate)
         self.mouse_visible = True
 
-        # Internal timing variables for frame measurement
-        self.last_flip_time = None
-        self.prev_flip_time = None
+        self.last_flip_time: Optional[int] = None
+        self.prev_flip_time: Optional[int] = None
 
-        # Set the window position to the monitor's position
-        os.environ['SDL_VIDEO_WINDOW_POS'] = f"{monitor.x},{monitor.y}"
+        os.environ["SDL_VIDEO_WINDOW_POS"] = f"{monitor.x},{monitor.y}"
 
-        # Initialize Pygame and create a window
         pygame.init()
         flags = DOUBLEBUF | OPENGL
-        if fullscreen:
+        if self.fullscreen:
             flags |= FULLSCREEN
-        self.screen = pygame.display.set_mode((self.width, self.height), flags, vsync=vsync)
+        self.screen = pygame.display.set_mode((self.width, self.height), flags, vsync=self.vsync)
         self.clock = pygame.time.Clock()
 
-        # grab the mouse attention
         pygame.event.set_grab(True)
 
-        # Initialize OpenGL
-        glViewport(0, 0, self.width, self.height)  # Set the viewport to match the screen dimensions
-
-
-        # Initialize OpenGL
+        glViewport(0, 0, self.width, self.height)
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         gluOrtho2D(0, self.width, self.height, 0)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
 
-        glClearColor(0.5, 0.5, 0.5, 1)  # Gray background
-
-        # Clear the color buffer initially (sets the background color for the first frame)
+        glClearColor(0.5, 0.5, 0.5, 1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # Disable depth testing since it's not needed for 2D rendering
         glDisable(GL_DEPTH_TEST)
-
-        # Disable textures initially to avoid unexpected textures appearing
         glDisable(GL_TEXTURE_2D)
-
-        # Enable blending for transparency handling (optional, but useful for 2D graphics)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        self.flip()  # Flip the screen to show the initial frame
-
-        # Prime the event queue to avoid glitches during the first call
+        self.flip()
         pygame.event.get()
 
+    @staticmethod
+    def _normalize_rgb_color(color: Sequence[float]) -> Tuple[float, float, float]:
+        """Normalize an RGB color from [0, 255] into [0, 1]."""
+        if len(color) != 3:
+            raise ValueError("color must be a 3-item RGB sequence")
+        r, g, b = color
+        return (float(r) / 255.0, float(g) / 255.0, float(b) / 255.0)
 
-    def flip(self):
-        """
-        Flip the screen and keep a timestamp.
+    @staticmethod
+    def _sleep_duration_for_remaining_ns(remaining_ns: int) -> Optional[float]:
+        """Return sleep duration in seconds, or None for busy-wait/exit path."""
+        if remaining_ns <= 0:
+            return None
+        if remaining_ns > 5_000_000:
+            return 0.001
+        return None
 
-        Returns
-        -------
-        float
-            The timestamp of the flip.
-        """
+    def flip(self) -> int:
+        """Swap buffers and return the flip timestamp in nanoseconds."""
         pygame.display.flip()
         self.tick()
         self.prev_flip_time = self.last_flip_time
@@ -120,99 +119,77 @@ class Screen:
         self.last_flip_time = this_time
         return this_time
 
-    def get_flip_interval(self):
-        """
-        Get the interval between the last two flips.
-
-        Returns
-        -------
-        float
-            The interval between the last two flips in seconds.
-        
-        """
+    def get_flip_interval(self) -> Optional[float]:
+        """Return the interval between the last two flips in seconds."""
         if self.last_flip_time is None or self.prev_flip_time is None:
             return None
-        return (self.last_flip_time - self.prev_flip_time)/1e9 # go back to seconds
-    
-    def fill(self, color=(128,128,128)):
-        """
-        Fill the screen with a color.
+        return (self.last_flip_time - self.prev_flip_time) / 1e9
 
-        Parameters
-        ----------
-        color : tuple
-            The color to fill the screen with. Should be a tuple of 3 integers between 0 and 255.
-
-        """
-        # Use OpenGL to clear the screen with the specified color
+    def fill(self, color: Sequence[float] = (128, 128, 128)) -> None:
+        """Clear the screen with the provided RGB color in [0, 255]."""
+        r, g, b = self._normalize_rgb_color(color)
         glBindTexture(GL_TEXTURE_2D, 0)
         glDisable(GL_TEXTURE_2D)
-        # glDisable(GL_BLEND)
-        # glBlendFunc(GL_ONE, GL_ZERO)
         glDisable(GL_DEPTH_TEST)
-        glClearColor(color[0]/255.0, color[1]/255.0, color[2]/255.0, 1.0)
+        glClearColor(r, g, b, 1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-    def tick(self):
-        """
-        Limit the frame rate to the desired refresh rate
-        """
+    def tick(self) -> None:
+        """Limit frame updates to the desired refresh rate."""
         self.clock.tick(self.desired_refresh_rate)
 
-    def test_flip_intervals(self, num_frames=50):
-        """
-        Test the flip intervals of the screen.
-
-        Parameters
-        ----------
-        num_frames : int
-            The number of frames to test. Default is 50.
-        """
-        frame_rates = []
+    def test_flip_intervals(self, num_frames: int = 50) -> float:
+        """Measure and return the mean frame interval in seconds."""
+        frame_intervals = []
         for _ in range(num_frames):
             self.fill((128, 128, 128))
             self.flip()
-            frame_rates.append(self.get_flip_interval())
-        frame_rates_array = np.array(frame_rates)
-        frame_rate_actual = np.mean(frame_rates_array[frame_rates_array>0])
-        return frame_rate_actual
+            interval = self.get_flip_interval()
+            if interval is not None and interval > 0:
+                frame_intervals.append(interval)
 
-    def hide_mouse(self):
-        # Hide the mouse cursor
+        if not frame_intervals:
+            return 0.0
+        return float(np.mean(np.array(frame_intervals)))
+
+    def hide_mouse(self) -> None:
         pygame.mouse.set_visible(False)
+        self.mouse_visible = False
 
-    def show_mouse(self):
-        # Show the mouse cursor
+    def show_mouse(self) -> None:
         pygame.mouse.set_visible(True)
+        self.mouse_visible = True
 
-    def wait(self, duration_secs):
-        """
-        Wait for a specified duration in seconds using high-precision timing.
-        
-        Parameters:
-            duration_secs: The duration to wait in seconds (float).
-        """
-        start_time = monotonic_ns()
-        end_time = start_time + int(duration_secs * 1e9)  # Convert seconds to nanoseconds
+    def set_mouse_visible(self, visible: bool) -> None:
+        """Set mouse visibility explicitly."""
+        if visible:
+            self.show_mouse()
+        else:
+            self.hide_mouse()
 
-        # Sleep in small increments to reduce CPU usage
+    def wait(self, duration_secs: float) -> None:
+        """Wait for a duration in seconds using high precision timing."""
+        if duration_secs <= 0:
+            return
+
+        end_time = monotonic_ns() + int(duration_secs * 1e9)
         while True:
-            current_time = monotonic_ns()
-            remaining_time = (end_time - current_time) / 1e9  # Convert to seconds
+            remaining_ns = end_time - monotonic_ns()
+            sleep_duration = self._sleep_duration_for_remaining_ns(remaining_ns)
+            if sleep_duration is None:
+                if remaining_ns <= 0:
+                    break
+                continue
+            sleep(sleep_duration)
 
-            if remaining_time <= 0:
-                break
-
-            if remaining_time > 0.005:
-                # If more than 5 milliseconds remaining, sleep for a short duration
-                sleep(0.001)  # Sleep for 1 millisecond
-            else:
-                # Busy-wait for the remaining time for higher precision
-                pass
-
-    def close(self):
-        """
-        Close the screen.
-        """
+    def close(self) -> None:
+        """Close the display and quit Pygame."""
         self.show_mouse()
         pygame.quit()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
