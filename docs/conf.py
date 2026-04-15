@@ -1,2 +1,19 @@
-project='TachyPy'
-extensions=['sphinx.ext.autodoc']
+"""Sphinx configuration for TachyPy docs."""
+
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+project = "TachyPy"
+author = "TachyPy contributors"
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.autosummary",
+]
+autosummary_generate = True
+templates_path = ["_templates"]
+exclude_patterns = ["_build"]
+html_theme = "alabaster"

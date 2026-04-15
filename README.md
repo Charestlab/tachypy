@@ -15,7 +15,7 @@ helpers.
   - `GLTextSDF` (distance-field text),
   - `GLSystemText` (system fonts via FreeType + HarfBuzz).
 - Psychophysics helpers (`make_gabor`, gratings, normalization, dithering).
-- Audio playback utility (`Audio`) built on `sounddevice`.
+- Audio playback utility (`Audio`) with backend abstraction (`sounddevice` or `dummy`).
 - Test suite for core logic and regressions.
 
 ## Installation
@@ -41,6 +41,7 @@ pip install -e ".[test]"        # pytest
 pip install -e ".[glfw]"        # GLFW backend
 pip install -e ".[text]"        # Pillow text fallback
 pip install -e ".[system_text]" # FreeType + HarfBuzz system-font text
+pip install -e ".[audio_sd]"    # sounddevice backend
 ```
 
 ## Quick Start
@@ -120,6 +121,22 @@ pytest
 Current suite covers audio timing helpers, response/key state handling,
 backend behavior, psychophysics invariants, text layout/renderer basics, and
 other regression-prone utility paths.
+
+For CI/headless testing, use:
+
+```bash
+TACHYPY_AUDIO_BACKEND=dummy pytest
+```
+
+## Documentation
+
+Expanded docs live in `/docs` and include:
+
+- getting started
+- backend behavior and input routing
+- text rendering options
+- audio backend guidance
+- examples and contribution workflow
 
 ## Main Modules
 

@@ -1,26 +1,122 @@
-import numpy as np
+import os
 import threading
 import time
+import warnings
+
+import numpy as np
 
 try:
     import sounddevice as sd
 except Exception:
     sd = None
 
-class Audio:
-    """Simple scheduled audio playback wrapper around sounddevice."""
 
-    def __init__(self, sample_rate=44100, channels=1):
-        """Initialize audio playback parameters and backend availability."""
+class _AudioBackend:
+    """Abstract audio backend interface used by :class:`Audio`."""
+
+    name = "abstract"
+
+    def play(self, data, sample_rate):
+        """Start playing a numpy buffer."""
+        raise NotImplementedError
+
+    def wait(self):
+        """Block until playback completes."""
+        raise NotImplementedError
+
+    def stop(self):
+        """Stop active playback."""
+        raise NotImplementedError
+
+    def close(self):
+        """Release backend resources."""
+        self.stop()
+
+
+class _SoundDeviceBackend(_AudioBackend):
+    """Sounddevice backend wrapping PortAudio."""
+
+    name = "sounddevice"
+
+    def play(self, data, sample_rate):
+        sd.play(data, samplerate=sample_rate)
+
+    def wait(self):
+        sd.wait()
+
+    def stop(self):
+        sd.stop()
+
+
+class _DummyBackend(_AudioBackend):
+    """No-op backend for CI/headless environments."""
+
+    name = "dummy"
+
+    def __init__(self):
+        self._play_until_ns = None
+
+    def play(self, data, sample_rate):
+        duration_ns = int((len(data) / float(sample_rate)) * 1e9)
+        self._play_until_ns = time.monotonic_ns() + max(duration_ns, 0)
+
+    def wait(self):
+        if self._play_until_ns is None:
+            return
+        remaining_ns = self._play_until_ns - time.monotonic_ns()
+        if remaining_ns > 0:
+            time.sleep(remaining_ns / 1e9)
+        self._play_until_ns = None
+
+    def stop(self):
+        self._play_until_ns = None
+
+
+def _build_backend(backend_name):
+    """Instantiate a backend from a backend selection string."""
+    if backend_name == "sounddevice":
         if sd is None:
             raise RuntimeError(
-                "Audio backend `sounddevice` is unavailable. "
-                "On macOS, try installing PortAudio and reinstalling sounddevice "
-                "(e.g., `brew install portaudio` then `pip install sounddevice`)."
+                "Audio backend 'sounddevice' requested but sounddevice is unavailable. "
+                "Install with `pip install 'tachypy[audio_sd]'`."
             )
+        return _SoundDeviceBackend()
+    if backend_name == "dummy":
+        return _DummyBackend()
+    if backend_name == "auto":
+        if sd is not None:
+            return _SoundDeviceBackend()
+        warnings.warn(
+            "sounddevice not available; falling back to dummy audio backend.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return _DummyBackend()
+    raise ValueError(f"Unsupported audio backend '{backend_name}'.")
+
+
+class Audio:
+    """Scheduled audio playback wrapper with pluggable backend support."""
+
+    def __init__(self, sample_rate=44100, channels=1, backend=None):
+        """Initialize audio playback state.
+
+        Parameters
+        ----------
+        sample_rate : int
+            Sample rate in Hz.
+        channels : int
+            Number of audio output channels.
+        backend : str | None
+            One of ``"auto"``, ``"sounddevice"``, ``"dummy"``.
+            ``None`` resolves from ``TACHYPY_AUDIO_BACKEND`` env var, then ``"auto"``.
+        """
         self.sample_rate = sample_rate
         self.channels = channels
         self.is_playing = False
+        requested_backend = backend or os.getenv("TACHYPY_AUDIO_BACKEND", "auto")
+        self.backend = _build_backend(requested_backend)
+        self.backend_name = self.backend.name
 
     def play(self, data, when=0):
         """
@@ -64,8 +160,8 @@ class Audio:
             self._precise_delay(delay)
 
         self.is_playing = True
-        sd.play(data, samplerate=self.sample_rate)
-        sd.wait()  # Wait until playback is finished
+        self.backend.play(data, sample_rate=self.sample_rate)
+        self.backend.wait()
         self.is_playing = False
 
     def _precise_delay(self, delay):
@@ -95,9 +191,10 @@ class Audio:
 
     def stop(self):
         """Stop current playback immediately."""
-        sd.stop()
+        self.backend.stop()
         self.is_playing = False
 
     def close(self):
         """Close audio resources by stopping playback."""
         self.stop()
+        self.backend.close()

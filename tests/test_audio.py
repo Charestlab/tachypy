@@ -31,7 +31,7 @@ def test_play_expands_mono_data_to_requested_channels(monkeypatch):
     monkeypatch.setattr("tachypy.audio.threading.Thread", FakeThread)
     monkeypatch.setattr("tachypy.audio.time.monotonic_ns", lambda: 2_000_000_000)
 
-    audio = Audio(sample_rate=44_100, channels=2)
+    audio = Audio(sample_rate=44_100, channels=2, backend="dummy")
     mono = np.array([0.1, -0.1, 0.2], dtype=np.float64)
 
     # when is in the past, delay should be clamped to zero.
@@ -43,8 +43,19 @@ def test_play_expands_mono_data_to_requested_channels(monkeypatch):
 
 
 def test_play_raises_for_wrong_channel_count():
-    audio = Audio(channels=2)
+    audio = Audio(channels=2, backend="dummy")
     stereo = np.array([[0.1], [0.2]], dtype=np.float32)
 
     with pytest.raises(ValueError, match="channels"):
         audio.play(stereo, when=0)
+
+
+def test_invalid_backend_raises():
+    with pytest.raises(ValueError, match="Unsupported audio backend"):
+        Audio(backend="nope")
+
+
+def test_dummy_backend_selected_via_env(monkeypatch):
+    monkeypatch.setenv("TACHYPY_AUDIO_BACKEND", "dummy")
+    audio = Audio()
+    assert audio.backend_name == "dummy"
