@@ -14,6 +14,16 @@ extensions = [
     "sphinx.ext.autosummary",
 ]
 autosummary_generate = True
+autodoc_mock_imports = [
+    "pygame",
+    "OpenGL",
+    "glfw",
+    "sounddevice",
+    "screeninfo",
+    "PIL",
+    "freetype",
+    "uharfbuzz",
+]
 templates_path = ["_templates"]
 exclude_patterns = ["_build"]
 html_theme = "alabaster"

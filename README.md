@@ -1,4 +1,5 @@
 # TachyPy
+[![Docs Status](https://readthedocs.org/projects/tachypy/badge/?version=latest)](https://tachypy.readthedocs.io/en/latest/?badge=latest)
 
 TachyPy is a psychophysics engine for Python focused on precise visual timing with
 OpenGL rendering, dual display/input backends, and experiment-friendly stimulus
@@ -137,6 +138,8 @@ Expanded docs live in `/docs` and include:
 - text rendering options
 - audio backend guidance
 - examples and contribution workflow
+
+Hosted docs (Read the Docs): https://tachypy.readthedocs.io/
 
 ## Main Modules
 
