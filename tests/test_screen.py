@@ -18,3 +18,8 @@ def test_sleep_duration_for_remaining_ns_behavior():
     assert Screen._sleep_duration_for_remaining_ns(0) is None
     assert Screen._sleep_duration_for_remaining_ns(1_000_000) is None
     assert Screen._sleep_duration_for_remaining_ns(6_000_000) == 0.001
+
+
+def test_screen_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="backend"):
+        Screen(backend="unknown-backend")

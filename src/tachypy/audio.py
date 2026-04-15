@@ -1,10 +1,23 @@
-import sounddevice as sd
 import numpy as np
 import threading
 import time
 
+try:
+    import sounddevice as sd
+except Exception:
+    sd = None
+
 class Audio:
+    """Simple scheduled audio playback wrapper around sounddevice."""
+
     def __init__(self, sample_rate=44100, channels=1):
+        """Initialize audio playback parameters and backend availability."""
+        if sd is None:
+            raise RuntimeError(
+                "Audio backend `sounddevice` is unavailable. "
+                "On macOS, try installing PortAudio and reinstalling sounddevice "
+                "(e.g., `brew install portaudio` then `pip install sounddevice`)."
+            )
         self.sample_rate = sample_rate
         self.channels = channels
         self.is_playing = False
@@ -45,6 +58,7 @@ class Audio:
         threading.Thread(target=self._playback_thread, args=(data, delay), daemon=True).start()
 
     def _playback_thread(self, data, delay):
+        """Worker thread that waits for the target time then plays audio."""
         if delay > 0:
             # High-precision wait until the scheduled time
             self._precise_delay(delay)
@@ -80,8 +94,10 @@ class Audio:
         return None
 
     def stop(self):
+        """Stop current playback immediately."""
         sd.stop()
         self.is_playing = False
 
     def close(self):
+        """Close audio resources by stopping playback."""
         self.stop()

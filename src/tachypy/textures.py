@@ -41,6 +41,8 @@ RectLike = Union[Sequence[float], Sequence[Sequence[float]]]
 
 
 class Texture:
+    """OpenGL texture wrapper with rectangle-based drawing utilities."""
+
     def __init__(self, image: np.ndarray, a_rect: Optional[RectLike] = None, rect: Optional[RectLike] = None):
         """
         Parameters
@@ -68,6 +70,7 @@ class Texture:
 
     @staticmethod
     def _validate_image(image: np.ndarray) -> np.ndarray:
+        """Validate and normalize image array to uint8 RGB format."""
         image = np.asarray(image)
         if image.ndim != 3 or image.shape[2] != 3:
             raise ValueError("image must have shape (H, W, 3)")
@@ -77,6 +80,7 @@ class Texture:
 
     @staticmethod
     def _normalize_rect(a_rect: RectLike) -> np.ndarray:
+        """Normalize rectangle input into float32 [x1, y1, x2, y2]."""
         a_rect = np.asarray(a_rect, dtype=np.float32)
         if a_rect.shape == (4,):
             x1, y1, x2, y2 = a_rect
@@ -91,6 +95,7 @@ class Texture:
         return np.array([x1, y1, x2, y2], dtype=np.float32)
 
     def load_texture(self, image: np.ndarray) -> None:
+        """Upload texture pixels to the GPU."""
         image = self._validate_image(image)
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
@@ -114,10 +119,12 @@ class Texture:
         glBindTexture(GL_TEXTURE_2D, 0)
 
     def bind(self) -> None:
+        """Bind this texture and enable texturing."""
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
         glEnable(GL_TEXTURE_2D)
 
     def unbind(self) -> None:
+        """Unbind texture and reset texturing state."""
         glDisable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, 0)
         glLoadIdentity()
@@ -146,24 +153,29 @@ class Texture:
         glBindTexture(GL_TEXTURE_2D, 0)
 
     def delete(self) -> None:
+        """Delete this texture object from GPU memory."""
         if getattr(self, "texture_id", 0):
             glDeleteTextures([self.texture_id])
             self.texture_id = 0
 
     def set_rect(self, a_rect: RectLike) -> None:
+        """Set drawing rectangle for subsequent draw calls."""
         self.rect = self._normalize_rect(a_rect)
 
     def move_by(self, dx: float, dy: float) -> None:
+        """Translate drawing rectangle by (dx, dy)."""
         self.rect[0] += dx
         self.rect[1] += dy
         self.rect[2] += dx
         self.rect[3] += dy
 
     def hit_test(self, x: float, y: float) -> bool:
+        """Return True if point lies inside current rectangle."""
         x1, y1, x2, y2 = self.rect
         return bool((x1 <= x <= x2) and (y1 <= y <= y2))
 
     def get_bounds(self) -> Tuple[float, float, float, float]:
+        """Return current rectangle bounds as floats."""
         x1, y1, x2, y2 = self.rect
         return float(x1), float(y1), float(x2), float(y2)
 

@@ -25,6 +25,8 @@ RectLike = Union[Sequence[float], Sequence[Sequence[float]]]
 
 
 class Circle:
+    """Circle primitive with hit-testing and immediate-mode OpenGL drawing."""
+
     def __init__(
         self,
         center: PointLike,
@@ -34,6 +36,7 @@ class Circle:
         color: Sequence[float] = (255.0, 255.0, 255.0),
         num_segments: int = 100,
     ):
+        """Initialize circle geometry, style, and color."""
         self.center = np.asarray(center, dtype=np.float32)
         self.radius = float(radius)
         self.fill = bool(fill)
@@ -42,24 +45,30 @@ class Circle:
         self.set_color(color)
 
     def set_center(self, center: PointLike) -> None:
+        """Set circle center point."""
         self.center = np.asarray(center, dtype=np.float32)
 
     def set_radius(self, radius: float) -> None:
+        """Set circle radius."""
         self.radius = float(radius)
 
     def set_color(self, color: Sequence[float]) -> None:
+        """Set circle RGB color in 0..255 space."""
         self.color = np.asarray(color, dtype=np.float32) / 255.0
 
     def hit_test(self, x: float, y: float) -> bool:
+        """Return True if point lies inside or on the circle."""
         dx = x - self.center[0]
         dy = y - self.center[1]
         return dx * dx + dy * dy <= self.radius * self.radius
 
     def move_by(self, dx: float, dy: float) -> None:
+        """Translate circle by (dx, dy)."""
         self.center[0] += dx
         self.center[1] += dy
 
     def get_bounds(self) -> Tuple[float, float, float, float]:
+        """Return axis-aligned bounding box as (x1, y1, x2, y2)."""
         x1 = self.center[0] - self.radius
         y1 = self.center[1] - self.radius
         x2 = self.center[0] + self.radius
@@ -67,6 +76,7 @@ class Circle:
         return float(x1), float(y1), float(x2), float(y2)
 
     def draw(self) -> None:
+        """Render the circle with OpenGL immediate-mode primitives."""
         glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
         glColor3f(*self.color)
 
@@ -87,6 +97,8 @@ class Circle:
 
 
 class Rectangle:
+    """Rectangle primitive with hit-testing and OpenGL drawing."""
+
     def __init__(
         self,
         a_rect: RectLike,
@@ -94,21 +106,25 @@ class Rectangle:
         thickness: float = 1.0,
         color: Sequence[float] = (255.0, 255.0, 255.0),
     ):
+        """Initialize rectangle geometry, style, and color."""
         self.set_rect(a_rect)
         self.fill = bool(fill)
         self.thickness = float(thickness)
         self.set_color(color)
 
     def move_by(self, dx: float, dy: float) -> None:
+        """Translate rectangle by (dx, dy)."""
         self.x1 += dx
         self.x2 += dx
         self.y1 += dy
         self.y2 += dy
 
     def hit_test(self, x: float, y: float) -> bool:
+        """Return True if point lies inside the rectangle bounds."""
         return (self.x1 <= x <= self.x2) and (self.y1 <= y <= self.y2)
 
     def set_rect(self, a_rect: RectLike) -> None:
+        """Set rectangle from [x1,y1,x2,y2] or [[x1,y1],[x2,y2]]."""
         a_rect = np.asarray(a_rect, dtype=np.float32)
         if a_rect.shape[0] == 4:
             self.x1, self.y1, self.x2, self.y2 = a_rect
@@ -121,12 +137,15 @@ class Rectangle:
             raise ValueError("x2 must be >= x1 and y2 must be >= y1.")
 
     def set_color(self, color: Sequence[float]) -> None:
+        """Set rectangle RGB color in 0..255 space."""
         self.color = np.asarray(color, dtype=np.float32) / 255.0
 
     def get_bounds(self) -> Tuple[float, float, float, float]:
+        """Return rectangle bounds as (x1, y1, x2, y2)."""
         return float(self.x1), float(self.y1), float(self.x2), float(self.y2)
 
     def draw(self) -> None:
+        """Render the rectangle with OpenGL immediate-mode primitives."""
         glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
         glColor3f(*self.color)
 
@@ -144,6 +163,8 @@ class Rectangle:
 
 
 class Line:
+    """Line segment primitive with hit-testing and OpenGL drawing."""
+
     def __init__(
         self,
         start_point: PointLike,
@@ -151,18 +172,21 @@ class Line:
         thickness: float = 1.0,
         color: Sequence[float] = (255.0, 0.0, 0.0),
     ):
+        """Initialize line endpoints, width, and color."""
         self.start_point = np.asarray(start_point, dtype=np.float32)
         self.end_point = np.asarray(end_point, dtype=np.float32)
         self.thickness = float(thickness)
         self.set_color(color)
 
     def move_by(self, dx: float, dy: float) -> None:
+        """Translate line segment by (dx, dy)."""
         self.start_point[0] += dx
         self.start_point[1] += dy
         self.end_point[0] += dx
         self.end_point[1] += dy
 
     def hit_test(self, x: float, y: float, tolerance: float = 5.0) -> bool:
+        """Return True if point is within tolerance of line segment."""
         p = np.array([x, y], dtype=np.float32)
         a = self.start_point
         b = self.end_point
@@ -180,18 +204,23 @@ class Line:
         return dist2 <= tolerance * tolerance
 
     def set_start_point(self, point: PointLike) -> None:
+        """Set line start point."""
         self.start_point = np.asarray(point, dtype=np.float32)
 
     def set_end_point(self, point: PointLike) -> None:
+        """Set line end point."""
         self.end_point = np.asarray(point, dtype=np.float32)
 
     def set_color(self, color: Sequence[float]) -> None:
+        """Set line RGB color in 0..255 space."""
         self.color = np.asarray(color, dtype=np.float32) / 255.0
 
     def set_thickness(self, thickness: float) -> None:
+        """Set line width in pixels."""
         self.thickness = float(thickness)
 
     def draw(self) -> None:
+        """Render the line with OpenGL immediate-mode primitives."""
         glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
         glColor3f(*self.color)
         glLineWidth(self.thickness)
@@ -202,6 +231,8 @@ class Line:
 
 
 class FixationCross:
+    """Fixation cross composed of two orthogonal line primitives."""
+
     def __init__(
         self,
         center: PointLike,
@@ -210,6 +241,7 @@ class FixationCross:
         thickness: float = 1.0,
         color: Sequence[float] = (255.0, 0.0, 0.0),
     ):
+        """Initialize fixation cross geometry and style."""
         self.center = np.asarray(center, dtype=np.float32)
         self.half_width = float(half_width)
         self.half_height = float(half_height)
@@ -230,31 +262,37 @@ class FixationCross:
         )
 
     def set_center(self, center: PointLike) -> None:
+        """Set fixation cross center point."""
         self.center = np.asarray(center, dtype=np.float32)
         self.update_lines()
 
     def set_size(self, half_width: float, half_height: float) -> None:
+        """Set horizontal/vertical half extents."""
         self.half_width = float(half_width)
         self.half_height = float(half_height)
         self.update_lines()
 
     def set_color(self, color: Sequence[float]) -> None:
+        """Set fixation cross RGB color in 0..255 space."""
         self.color = color
         self.horizontal_line.set_color(color)
         self.vertical_line.set_color(color)
 
     def set_thickness(self, thickness: float) -> None:
+        """Set fixation cross line thickness."""
         self.thickness = float(thickness)
         self.horizontal_line.set_thickness(thickness)
         self.vertical_line.set_thickness(thickness)
 
     def update_lines(self) -> None:
+        """Recompute component line endpoints from current geometry."""
         self.horizontal_line.set_start_point((self.center[0] - self.half_width, self.center[1]))
         self.horizontal_line.set_end_point((self.center[0] + self.half_width, self.center[1]))
         self.vertical_line.set_start_point((self.center[0], self.center[1] - self.half_height))
         self.vertical_line.set_end_point((self.center[0], self.center[1] + self.half_height))
 
     def draw(self) -> None:
+        """Draw both fixation cross component lines."""
         self.horizontal_line.draw()
         self.vertical_line.draw()
 

@@ -1,10 +1,23 @@
+import warnings
+
 import pygame
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
 
 class Text:
-    def __init__(self, text, font_name='Helvetica', font_size=24, color=(255, 255, 255), dest_rect=None, line_spacing=4):
+    """OpenGL text object with pluggable font backends and texture upload."""
+
+    def __init__(
+        self,
+        text,
+        font_name='Helvetica',
+        font_size=24,
+        color=(255, 255, 255),
+        dest_rect=None,
+        line_spacing=4,
+        backend="auto",
+    ):
         """
         Initialize the Text object.
 
@@ -21,7 +34,17 @@ class Text:
                 Color of the text as an RGB tuple.
             
         """
-        pygame.font.init()
+        self._font_available = True
+        self._warned_font_unavailable = False
+        self.backend = str(backend).lower()
+        self._font_backend = None
+        self._font_obj = None
+        self._pil_image = None
+        self._pil_draw = None
+        self._pil_imagefont = None
+        self._surface_data = None
+        self.texture_width = 0
+        self.texture_height = 0
         self.text = text
         self.font_name = font_name
         self.font_size = font_size
@@ -31,19 +54,83 @@ class Text:
         self.surface = None
         self.line_spacing = line_spacing
 
+        self._init_text_backend()
         self.lines = []
         self._split_text_into_lines()
         self._generate_surface()
 
+    def _init_text_backend(self):
+        """Initialize selected text backend and font object."""
+        if self.backend not in {"auto", "pygame", "pillow"}:
+            raise ValueError("Text backend must be 'auto', 'pygame', or 'pillow'.")
+
+        if self.backend in {"auto", "pygame"}:
+            try:
+                pygame.font.init()
+                self._font_obj = pygame.font.SysFont(self.font_name, self.font_size)
+                # Smoke test for environments where pygame.font appears available but fails at render.
+                _ = self._font_obj.size("Ag")
+                self._font_backend = "pygame"
+                return
+            except Exception as err:
+                if self.backend == "pygame":
+                    raise RuntimeError(f"pygame text backend unavailable: {err}") from err
+
+        if self.backend in {"auto", "pillow"}:
+            try:
+                from PIL import Image, ImageDraw, ImageFont
+
+                self._pil_image = Image
+                self._pil_draw = ImageDraw
+                self._pil_imagefont = ImageFont
+                self._font_obj = self._load_pillow_font()
+                self._font_backend = "pillow"
+                return
+            except Exception as err:
+                if self.backend == "pillow":
+                    raise RuntimeError(f"pillow text backend unavailable: {err}") from err
+
+        self._font_available = False
+        warnings.warn(
+            "No text backend available. Install a working pygame font stack or Pillow.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    def _load_pillow_font(self):
+        """Load requested Pillow font or fall back to default font."""
+        try:
+            return self._pil_imagefont.truetype(self.font_name, self.font_size)
+        except Exception:
+            return self._pil_imagefont.load_default()
+
+    def _measure_text(self, text_value):
+        """Measure text dimensions in pixels for the active backend."""
+        if self._font_backend == "pygame":
+            return self._font_obj.size(text_value)
+
+        # Pillow backend.
+        scratch = self._pil_image.new("RGBA", (1, 1), (0, 0, 0, 0))
+        drawer = self._pil_draw.Draw(scratch)
+        bbox = drawer.textbbox((0, 0), text_value if text_value else " ", font=self._font_obj)
+        width = max(1, int(bbox[2] - bbox[0]))
+        height = max(1, int(bbox[3] - bbox[1]))
+        return width, height
+
     def _split_text_into_lines(self):
         """Split the text into multiple lines that fit within the dest_rect width."""
+        if not self._font_available:
+            self.lines = self.text.splitlines() or [self.text]
+            if not self.lines:
+                self.lines = [""]
+            return
+
         if not self.dest_rect:
             self.lines = self.text.splitlines() or [self.text]
             if not self.lines:
                 self.lines = [""]
             return
 
-        font = pygame.font.SysFont(self.font_name, self.font_size)
         max_width = self.dest_rect[2] - self.dest_rect[0]  # Width of the rectangle
 
         self.lines = []
@@ -57,7 +144,7 @@ class Text:
             line = ""
             for word in words:
                 test_line = f"{line} {word}".strip()
-                if font.size(test_line)[0] <= max_width or line == "":
+                if self._measure_text(test_line)[0] <= max_width or line == "":
                     line = test_line
                 else:
                     self.lines.append(line)
@@ -67,37 +154,76 @@ class Text:
 
     def _generate_surface(self):
         """Generate a Pygame surface with the text rendered."""
-        font = pygame.font.SysFont(self.font_name, self.font_size)
+        if not self._font_available:
+            self.surface = None
+            self.texture_id = None
+            self._surface_data = None
+            self.texture_width = 0
+            self.texture_height = 0
+            return
 
         lines = self.lines if self.lines else [""]
-        # Render empty lines as spaces so we still get a stable line height.
-        line_surfaces = [font.render(line if line else " ", True, self.color) for line in lines]
-        max_width = max(surface.get_width() for surface in line_surfaces)
-        total_height = sum(surface.get_height() for surface in line_surfaces) + (len(line_surfaces) - 1) * self.line_spacing
+        if self._font_backend == "pygame":
+            # Render empty lines as spaces so we still get a stable line height.
+            line_surfaces = [self._font_obj.render(line if line else " ", True, self.color) for line in lines]
+            max_width = max(surface.get_width() for surface in line_surfaces)
+            total_height = sum(surface.get_height() for surface in line_surfaces) + (len(line_surfaces) - 1) * self.line_spacing
 
-        # Create the surface with an appropriate size
-        self.surface = pygame.Surface((max_width, total_height), pygame.SRCALPHA)
-        self.surface.fill((0, 0, 0, 0))  # Transparent background
+            # Create the surface with an appropriate size
+            self.surface = pygame.Surface((max_width, total_height), pygame.SRCALPHA)
+            self.surface.fill((0, 0, 0, 0))  # Transparent background
 
-        # Draw each line on the surface
-        y_offset = 0
-        for surface in line_surfaces:
-            self.surface.blit(surface, (0, y_offset))
-            y_offset += surface.get_height() + self.line_spacing
+            # Draw each line on the surface
+            y_offset = 0
+            for surface in line_surfaces:
+                self.surface.blit(surface, (0, y_offset))
+                y_offset += surface.get_height() + self.line_spacing
+
+            self.texture_width = int(self.surface.get_width())
+            self.texture_height = int(self.surface.get_height())
+            self._surface_data = pygame.image.tostring(self.surface, "RGBA", True)
+        else:
+            line_sizes = [self._measure_text(line if line else " ") for line in lines]
+            max_width = max(width for width, _ in line_sizes)
+            total_height = sum(height for _, height in line_sizes) + (len(line_sizes) - 1) * self.line_spacing
+
+            image = self._pil_image.new("RGBA", (max_width, total_height), (0, 0, 0, 0))
+            drawer = self._pil_draw.Draw(image)
+            y_offset = 0
+            for line, (_, h) in zip(lines, line_sizes):
+                drawer.text((0, y_offset), line if line else " ", fill=tuple(self.color) + (255,), font=self._font_obj)
+                y_offset += h + self.line_spacing
+
+            # OpenGL expects bottom-left origin by default; match pygame path with vertical flip.
+            image = image.transpose(self._pil_image.FLIP_TOP_BOTTOM)
+            self.surface = None
+            self.texture_width, self.texture_height = image.size
+            self._surface_data = image.tobytes("raw", "RGBA")
 
         self._generate_texture()
 
     def _generate_texture(self):
         """Upload the Pygame surface as an OpenGL texture."""
+        if self._surface_data is None or self.texture_width <= 0 or self.texture_height <= 0:
+            return
+
         if self.texture_id:
             glDeleteTextures([self.texture_id])
 
         self.texture_id = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
 
-        surface_data = pygame.image.tostring(self.surface, "RGBA", True)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.surface.get_width(),
-                     self.surface.get_height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, surface_data)
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            self.texture_width,
+            self.texture_height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            self._surface_data,
+        )
 
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
@@ -110,6 +236,16 @@ class Text:
         """
         Draw the text on the screen, centered within the dest_rect.
         """
+        if not self._font_available or self.texture_width <= 0 or self.texture_height <= 0 or self.texture_id is None:
+            if not self._warned_font_unavailable:
+                warnings.warn(
+                    "Text.draw() skipped because font backend is unavailable.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                self._warned_font_unavailable = True
+            return
+
         if not self.dest_rect:
             raise ValueError("dest_rect must be set to draw text.")
 
@@ -118,8 +254,8 @@ class Text:
         rect_height = y2 - y1
 
         # Center the text within the rectangle
-        texture_width = self.surface.get_width()
-        texture_height = self.surface.get_height()
+        texture_width = self.texture_width
+        texture_height = self.texture_height
         center_x = x1 + rect_width // 2
         center_y = y1 + rect_height // 2
         x_start = center_x - texture_width // 2

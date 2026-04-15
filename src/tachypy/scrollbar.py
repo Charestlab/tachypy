@@ -9,6 +9,8 @@ from tachypy.text import Text
 
 
 class Scrollbar:
+    """Drawable scrollbar widget with a draggable indicator and 0..100 mapping."""
+
     def __init__(
         self,
         screen_width: float,
@@ -31,6 +33,7 @@ class Scrollbar:
         text_color: Sequence[float] = (0, 0, 0),
         text_offset: float = 12,
     ):
+        """Initialize scrollbar geometry, labels, and marker state."""
         self.screen_width = float(screen_width)
         self.screen_height = float(screen_height)
         self.position_y = float(position_y)
@@ -125,17 +128,21 @@ class Scrollbar:
 
     @property
     def min_x(self) -> float:
+        """Return minimum marker x-position."""
         return self.center_x - self.half_bar_length
 
     @property
     def max_x(self) -> float:
+        """Return maximum marker x-position."""
         return self.center_x + self.half_bar_length
 
     def _update_mobile_line_geometry(self) -> None:
+        """Update marker line endpoints from current x-position."""
         self.mobile_line.set_start_point((self.mobile_line_x, self.position_y - self.half_mobile_line_height))
         self.mobile_line.set_end_point((self.mobile_line_x, self.position_y + self.half_mobile_line_height))
 
     def draw(self) -> None:
+        """Draw the scrollbar, ticks, labels, and marker."""
         self.bar.draw()
         for mark in self.marks:
             mark.draw()

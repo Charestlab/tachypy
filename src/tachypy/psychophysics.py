@@ -29,6 +29,7 @@ __all__ = [
 
 
 def _warn_legacy_name(legacy_name, replacement_name):
+    """Emit deprecation warning for legacy French API aliases."""
     warnings.warn(
         f"`{legacy_name}` is deprecated and will be removed in a future release. "
         f"Use `{replacement_name}` instead.",
@@ -206,45 +207,54 @@ def location_bubbles(nb_bubbles=50, std_bubble=25, an_image=None, x_size=None, y
 
 # Backward-compatible French wrappers.
 def fabriquer_grille_sin(nx, frequence, phase, angle):
+    """Deprecated alias for :func:`make_sine_grating`."""
     _warn_legacy_name("fabriquer_grille_sin", "make_sine_grating")
     return make_sine_grating(nx, frequence, phase, angle)
 
 
 def fabriquer_enveloppe_gaussienne(nx, ecart_type):
+    """Deprecated alias for :func:`make_gaussian_envelope`."""
     _warn_legacy_name("fabriquer_enveloppe_gaussienne", "make_gaussian_envelope")
     return make_gaussian_envelope(nx, ecart_type)
 
 
 def fabriquer_gabor(nx, frequence, phase, angle, ecart_type):
+    """Deprecated alias for :func:`make_gabor`."""
     _warn_legacy_name("fabriquer_gabor", "make_gabor")
     return make_gabor(nx, frequence, phase, angle, ecart_type)
 
 
 def stretch(im):
+    """Deprecated alias for :func:`normalize_to_unit_interval`."""
     _warn_legacy_name("stretch", "normalize_to_unit_interval")
     return normalize_to_unit_interval(im)
 
 
 def fabriquer_wiggles_sin(nx, frequence_min, frequence_max, frequence_radiale, phase_radiale, phase):
+    """Deprecated alias for :func:`make_wiggles_sine`."""
     _warn_legacy_name("fabriquer_wiggles_sin", "make_wiggles_sine")
     return make_wiggles_sine(nx, frequence_min, frequence_max, frequence_radiale, phase_radiale, phase)
 
 
 def fabriquer_cercles_sin(nx, frequence, phase):
+    """Deprecated alias for :func:`make_concentric_sine_circles`."""
     _warn_legacy_name("fabriquer_cercles_sin", "make_concentric_sine_circles")
     return make_concentric_sine_circles(nx, frequence, phase)
 
 
 def fabriquer_secteurs_sin(nx, frequence, phase):
+    """Deprecated alias for :func:`make_sine_sectors`."""
     _warn_legacy_name("fabriquer_secteurs_sin", "make_sine_sectors")
     return make_sine_sectors(nx, frequence, phase)
 
 
 def fabriquer_grand_damier(une_case, M, N):
+    """Deprecated alias for :func:`make_checkerboard`."""
     _warn_legacy_name("fabriquer_grand_damier", "make_checkerboard")
     return make_checkerboard(une_case, M, N)
 
 
 def fabriquer_petit_damier(une_case):
+    """Deprecated alias for :func:`make_checkerboard_tile`."""
     _warn_legacy_name("fabriquer_petit_damier", "make_checkerboard_tile")
     return make_checkerboard_tile(une_case)

@@ -12,14 +12,18 @@ class Draggable:
         - get_bounds() -> (x1, y1, x2, y2)
     """
     def __init__(self, target):
+        """Wrap a drawable/hit-testable target as a draggable object."""
         self.target = target
         self.dragging = False
         self._last_mouse_pos = None
 
     def draw(self):
+        """Draw the wrapped target."""
         self.target.draw()
 
 class DraggableManager:
+    """Manage drag interactions for a collection of Draggable instances."""
+
     def __init__(self, button_index=0, screen_width=None, screen_height=None):
         """
         Classe gérant plusieurs Draggables.
@@ -42,6 +46,7 @@ class DraggableManager:
         self.draggables.append(draggable)
 
     def draw(self):
+        """Draw all managed draggables in current z-order."""
         # L'ordre de la liste = z-index
         for d in self.draggables:
             d.draw()
