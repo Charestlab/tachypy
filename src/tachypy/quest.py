@@ -42,6 +42,7 @@ import time
 import numpy as np
 
 def getinf(x):
+    """Return indices where input values are infinite."""
     return np.nonzero( np.isinf( np.atleast_1d(x) ) )
 
 

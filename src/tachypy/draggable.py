@@ -12,14 +12,18 @@ class Draggable:
         - get_bounds() -> (x1, y1, x2, y2)
     """
     def __init__(self, target):
+        """Wrap a drawable/hit-testable target as a draggable object."""
         self.target = target
         self.dragging = False
         self._last_mouse_pos = None
 
     def draw(self):
+        """Draw the wrapped target."""
         self.target.draw()
 
 class DraggableManager:
+    """Manage drag interactions for a collection of Draggable instances."""
+
     def __init__(self, button_index=0, screen_width=None, screen_height=None):
         """
         Classe gérant plusieurs Draggables.
@@ -28,7 +32,10 @@ class DraggableManager:
             (cohérent avec ResponseHandler). default = 0 (gauche)
         """
         self.button_index = button_index
-        self.bounds = (0, 0, screen_width, screen_height)
+        if screen_width is None or screen_height is None:
+            self.bounds = None
+        else:
+            self.bounds = (0, 0, screen_width, screen_height)
         self.draggables = []
         self.active = None  # Draggable actuellement en drag
 
@@ -39,6 +46,7 @@ class DraggableManager:
         self.draggables.append(draggable)
 
     def draw(self):
+        """Draw all managed draggables in current z-order."""
         # L'ordre de la liste = z-index
         for d in self.draggables:
             d.draw()
@@ -106,13 +114,14 @@ class DraggableManager:
             w = x2 - x1
             h = y2 - y1
 
-            min_x, min_y, max_x, max_y = self.bounds
-
-            # 🧠 Clamp de la "souris utile"
-            # pour que dragger ne sorte jamais des limits.
-            # La souris "virtuelle" est centrée sur l'objet
-            cx_clamped = max(min_x + w/2, min(cx, max_x - w/2))
-            cy_clamped = max(min_y + h/2, min(cy, max_y - h/2))
+            if self.bounds is None:
+                cx_clamped = cx
+                cy_clamped = cy
+            else:
+                min_x, min_y, max_x, max_y = self.bounds
+                # Clamp la souris pour garder l'objet dans les limites.
+                cx_clamped = max(min_x + w/2, min(cx, max_x - w/2))
+                cy_clamped = max(min_y + h/2, min(cy, max_y - h/2))
 
             # dx, dy à partir de la souris clampée
             dx = cx_clamped - lx

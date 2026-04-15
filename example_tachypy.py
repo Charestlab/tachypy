@@ -3,21 +3,125 @@ import time
 import numpy as np
 from tachypy import (
     Audio,
+    GLText,
+    GLSystemText,
+    GLTextSDF,
     Screen,
     Texture,
     Circle,
     Rectangle,
     FixationCross,
-    Text,
     center_rect_on_point,
-    ResponseHandler,
     fabriquer_gabor,
-    noisy_bit_dithering
+    noisy_bit_dithering,
 )
 
-# which screen should we draw to?
-screen_number = 1
-screen = Screen(screen_number=screen_number, fullscreen=True, desired_refresh_rate=60)
+screen_backend = os.environ.get("TACHYPY_BACKEND", "pygame").strip().lower()
+if screen_backend == "pygame":
+    from tachypy import Text
+else:
+    Text = None
+from tachypy import ResponseHandler
+
+
+def run_instruction_screen(screen, response_handler, message, center_x, center_y, fixation_cross):
+    """
+    Show an instruction screen until space or escape.
+    Falls back to a no-text mode when pygame font backends are unavailable.
+    """
+    text_obj = None
+    if Text is not None:
+        try:
+            dest_rect = center_rect_on_point([0, 0, .85 * screen.width, .2 * screen.height], [center_x, center_y])
+            text_obj = Text(
+                message,
+                dest_rect=dest_rect,
+                font_name='Arial',
+                font_size=36,
+                color=(25, 50, 255),
+            )
+        except Exception as err:
+            print(f"Warning: text rendering unavailable ({err}). Falling back to fixation-only prompt.")
+            print("Press spacebar to continue or escape to quit.")
+    elif screen.backend == "glfw":
+        dest_rect = center_rect_on_point([0, 0, .85 * screen.width, .2 * screen.height], [center_x, center_y])
+        try:
+            text_obj = GLSystemText(
+                message,
+                dest_rect=dest_rect,
+                font_name="Helvetica",
+                font_size=36,
+                color=(25, 50, 255),
+                align="center",
+            )
+        except Exception:
+            try:
+                text_obj = GLTextSDF(
+                    message,
+                    dest_rect=dest_rect,
+                    color=(25, 50, 255),
+                    pixel_size=4.0,
+                    line_spacing=2.0,
+                    align="center",
+                )
+            except Exception:
+                text_obj = GLText(
+                    message,
+                    dest_rect=dest_rect,
+                    color=(25, 50, 255),
+                    pixel_size=4.0,
+                    line_spacing=2.0,
+                    align="center",
+                )
+
+    if response_handler is not None:
+        response_handler.clear_events()
+
+    running = True
+    while running:
+        screen.fill((128, 128, 128))
+        if text_obj is not None:
+            text_obj.draw()
+        else:
+            fixation_cross.draw()
+        screen.flip()
+
+        if screen.backend == "glfw":
+            if screen.should_close() or screen.was_key_pressed("escape"):
+                return False
+            if (
+                screen.was_key_pressed("space")
+                or screen.was_key_pressed("enter")
+                or screen.was_key_pressed("kp_enter")
+            ):
+                print("Spacebar pressed!")
+                return True
+        else:
+            response_handler.get_events()
+            if response_handler.should_quit():
+                return False
+
+            if (
+                response_handler.was_key_pressed("space")
+                or response_handler.was_key_pressed("enter")
+                or response_handler.was_key_pressed("kp_enter")
+            ):
+                print("Spacebar pressed!")
+                return True
+
+    return True
+
+# Safer demo defaults: primary monitor, windowed mode, and no input grab.
+screen_number = 0
+screen = Screen(
+    screen_number=screen_number,
+    width=1280,
+    height=720,
+    fullscreen=False,
+    desired_refresh_rate=60,
+    grab_input=False,
+    backend=screen_backend,
+)
 
 # get some relevant screen properties
 center_x = screen.width//2 
@@ -56,8 +160,8 @@ screen.flip()
 frame_rate_actual = 1/screen.test_flip_intervals(num_frames=100)
 print(frame_rate_actual)
 
-# Initialize ResponseHandler
-response_handler = ResponseHandler()
+# Initialize ResponseHandler for both backends.
+response_handler = ResponseHandler(screen=screen)
 
 # create a moving Gabor patch animation
 nx = 750
@@ -87,6 +191,8 @@ dest_rect = center_rect_on_point([0, 0, nx-1, nx-1], [center_x, center_y])
 
 # Main loop
 running = True
+quit_demo = False
+advance_stage = False
 
 # Track frame timestamps to measure interval consistency
 frame_intervals = []
@@ -94,7 +200,7 @@ frame_intervals = []
 # flip an initial screen and set initial time
 start_time = screen.flip()
 
-while running:
+while running and not quit_demo and not advance_stage:
     for current_trial, texture in enumerate(textures):
 
         screen.fill([128, 128, 128])
@@ -117,80 +223,61 @@ while running:
         frame_intervals.append(screen.get_flip_interval()) 
 
         # Handle events
-        response_handler.get_events()
-        if response_handler.should_quit():
-            running = False
-            break
+        if screen.backend == "glfw":
+            if screen.should_close() or screen.was_key_pressed("escape"):
+                quit_demo = True
+                break
+            if (
+                screen.was_key_pressed("space")
+                or screen.was_key_pressed("enter")
+                or screen.was_key_pressed("kp_enter")
+            ):
+                advance_stage = True
+                break
+            if screen.is_key_down("a"):
+                print("a key pressed!")
+                audio_player.play(waveform)
+        else:
+            response_handler.get_events()
+            if response_handler.should_quit():
+                quit_demo = True
+                break
 
-        # Example: Check if the a key was pressed
-        if response_handler.is_key_down('a'):
-            print("a key pressed!")
-            audio_player.play(waveform)
-            # Do something in response to the spacebar press
+            # Advance to next demo stage with space/enter.
+            if (
+                response_handler.was_key_pressed("space")
+                or response_handler.was_key_pressed("enter")
+                or response_handler.was_key_pressed("kp_enter")
+            ):
+                advance_stage = True
+                break
+
+            # Example: Check if the a key was pressed
+            if response_handler.is_key_down('a'):
+                print("a key pressed!")
+                audio_player.play(waveform)
         
    #time.sleep(0.01)
 
-# Create a Text object
-dest_rect = center_rect_on_point([0, 0, .85*screen.width, .2*screen.height], [center_x, center_y])
-text = Text("Thanks for using tachypy. Here is a long sentence that should be rendered on multiple lines. Only if that is necessary, of course. Press spacebar to continue with this demonstration.",
-            dest_rect=dest_rect,
-            font_name='Arial', 
-            font_size=36, 
-            color=(25, 50, 255))
+if not quit_demo:
+    running = run_instruction_screen(
+        screen=screen,
+        response_handler=response_handler,
+        message="Thanks for using tachypy. Here is a long sentence that should be rendered on multiple lines. Only if that is necessary, of course. Press spacebar to continue with this demonstration.",
+        center_x=center_x,
+        center_y=center_y,
+        fixation_cross=fixation_cross,
+    )
 
-# Clear events before the text is drawn
-response_handler.clear_events()
-
-
-# Draw the text
-running = True
-while running:
-    screen.fill((128, 128, 128))  # Gray background
-    text.draw()  # Draw the text
-    screen.flip()
-
-    # Handle events
-    response_handler.get_events()
-    if response_handler.should_quit():
-        running = False
-        break
-
-    # Example: Check if the spacebar was pressed
-    elif response_handler.is_key_down('space'):
-        print("Spacebar pressed!")
-        running = False
-        break
-
-
-# Create a Text object
-dest_rect = center_rect_on_point([0, 0, .85*screen.width, .2*screen.height], [center_x, center_y])
-text = Text("Here is a shorter instruction. Press spacebar to quit.",
-            dest_rect=dest_rect,
-            font_name='Arial', 
-            font_size=36, 
-            color=(25, 50, 255))
-
-# Clear events before the text is drawn
-response_handler.clear_events()
-
-# Draw the text
-running = True
-while running:
-    screen.fill((128, 128, 128))  # Gray background
-    text.draw()  # Draw the text
-    screen.flip()
-
-    # Handle events
-    response_handler.get_events()
-    if response_handler.should_quit():
-        running = False
-        break
-
-    # Example: Check if the spacebar was pressed
-    elif response_handler.is_key_down('space'):
-        print("Spacebar pressed!")
-        running = False
-        break
+if running and not quit_demo:
+    running = run_instruction_screen(
+        screen=screen,
+        response_handler=response_handler,
+        message="Here is a shorter instruction. Press spacebar to quit.",
+        center_x=center_x,
+        center_y=center_y,
+        fixation_cross=fixation_cross,
+    )
 
 # Analyze frame intervals after the loop ends
 frame_intervals = np.array(frame_intervals)
