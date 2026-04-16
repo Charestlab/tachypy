@@ -45,6 +45,39 @@ pip install -e ".[system_text]" # FreeType + HarfBuzz system-font text
 pip install -e ".[audio_sd]"    # sounddevice backend
 ```
 
+### sounddevice / PortAudio prerequisites
+
+`sounddevice` requires PortAudio on some systems.
+
+Linux (Debian/Ubuntu):
+
+```bash
+sudo apt update
+sudo apt install libportaudio2 libportaudiocpp0 portaudio19-dev
+```
+
+macOS:
+
+Install Homebrew (if needed):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Then install PortAudio:
+
+```bash
+brew install portaudio
+```
+
+Windows:
+
+`sounddevice` wheels often already include what is needed. If installation still fails, one workaround is:
+
+```bash
+choco install portaudio
+```
+
 ## Quick Start
 
 ```python
