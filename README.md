@@ -127,6 +127,8 @@ TACHYPY_BACKEND=glfw python example_tachypy.py
   coordinate handling aligned to TachyPy conventions.
 - For robust key/mouse behavior across backends, initialize
   `ResponseHandler(screen=screen)` so it can route event polling correctly.
+- `DraggableManager` now works on both backends when events are read through
+  `ResponseHandler(screen=screen)`.
 
 ## Text Rendering Notes
 
@@ -173,6 +175,9 @@ Expanded docs live in `/docs` and include:
 - examples and contribution workflow
 
 Hosted docs (Read the Docs): https://tachypy.readthedocs.io/
+
+If Read the Docs is not auto-updating after pushes, reconnect GitHub in RTD and
+re-sync project webhooks from the RTD project settings.
 
 ## Main Modules
 

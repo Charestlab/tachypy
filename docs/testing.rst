@@ -11,6 +11,7 @@ What is covered
 - Audio backend selection and CI-safe dummy mode behavior.
 - Response handling state transitions (key press/release behavior).
 - Draggable object movement and boundary clamping.
+- Cross-backend drag/input behavior (pygame and GLFW).
 - Psychophysics helper invariants (shape/range and edge cases).
 - Text object line processing edge cases.
 

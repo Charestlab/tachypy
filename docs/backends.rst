@@ -27,6 +27,13 @@ the active backend:
 
 This avoids mixing Pygame polling with GLFW windows.
 
+Draggable compatibility
+-----------------------
+
+``DraggableManager`` works with both backends when fed events from
+``ResponseHandler``. In GLFW mode, TachyPy now synthesizes mouse
+down/up transition events so drag interactions match pygame behavior.
+
 Coordinate convention
 ---------------------
 
