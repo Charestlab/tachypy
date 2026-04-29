@@ -139,7 +139,7 @@ class ResponseHandler:
         self.mouse_buttons = list(pressed[:3])
 
     def _get_events_glfw(self):
-        """Collect key transition state from a GLFW-backed Screen."""
+        """Collect key and mouse transition state from a GLFW-backed Screen."""
         self.events = []
         timestamp = (time.monotonic_ns() - self.start_time) / 1e9
 
@@ -174,8 +174,47 @@ class ResponseHandler:
                 self.key_up_events.add(key_name)
                 self.held_keys.discard(key_name)
 
-        self.mouse_position = None
-        self.mouse_buttons = [False, False, False]
+        get_mouse_position = getattr(self.screen, "get_mouse_position", lambda: None)
+        is_mouse_button_pressed = getattr(self.screen, "is_mouse_button_pressed", lambda _b: False)
+        was_mouse_button_pressed = getattr(self.screen, "was_mouse_button_pressed", lambda _b: False)
+        was_mouse_button_released = getattr(self.screen, "was_mouse_button_released", lambda _b: False)
+
+        self.mouse_position = get_mouse_position()
+        self.mouse_buttons = [
+            is_mouse_button_pressed(0),
+            is_mouse_button_pressed(1),
+            is_mouse_button_pressed(2),
+        ]
+        for button_index in (0, 1, 2):
+            button_num = button_index + 1
+            if was_mouse_button_pressed(button_index):
+                mouse_down = pygame.event.Event(
+                    pygame.MOUSEBUTTONDOWN,
+                    {"button": button_num, "pos": self.mouse_position},
+                )
+                self.events.append(mouse_down)
+                self.mouse_clicks.append(
+                    {
+                        "time": timestamp,
+                        "type": "mousedown",
+                        "button": button_index,
+                        "pos": self.mouse_position,
+                    }
+                )
+            if was_mouse_button_released(button_index):
+                mouse_up = pygame.event.Event(
+                    pygame.MOUSEBUTTONUP,
+                    {"button": button_num, "pos": self.mouse_position},
+                )
+                self.events.append(mouse_up)
+                self.mouse_clicks.append(
+                    {
+                        "time": timestamp,
+                        "type": "mouseup",
+                        "button": button_index,
+                        "pos": self.mouse_position,
+                    }
+                )
 
     def should_quit(self):
         """Return whether a quit signal has been received."""
@@ -214,6 +253,8 @@ class ResponseHandler:
     def set_position(self, x, y):
         """Set mouse position (pygame) or tracked logical position (glfw)."""
         if self.backend == "glfw":
+            if self.screen is not None and hasattr(self.screen, "set_mouse_position"):
+                self.screen.set_mouse_position(x, y)
             self.mouse_position = (x, y)
             return
         pygame.mouse.set_pos((x, y))

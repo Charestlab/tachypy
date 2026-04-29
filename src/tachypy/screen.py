@@ -68,6 +68,9 @@ class Screen:
         self._glfw_window = None
         self._glfw_prev_key_state: Dict[int, bool] = {}
         self._glfw_curr_key_state: Dict[int, bool] = {}
+        self._glfw_prev_mouse_state: Dict[int, bool] = {}
+        self._glfw_curr_mouse_state: Dict[int, bool] = {}
+        self._glfw_mouse_position: Optional[Tuple[float, float]] = None
 
         if self.backend == "pygame":
             self._init_pygame_backend(screen_number)
@@ -223,6 +226,7 @@ class Screen:
             self._glfw.poll_events()
             self._sync_glfw_viewport_and_projection()
             self._update_glfw_key_state()
+            self._update_glfw_mouse_state()
 
         self.tick()
         self.prev_flip_time = self.last_flip_time
@@ -376,6 +380,22 @@ class Screen:
             state = self._glfw.get_key(self._glfw_window, key) == self._glfw.PRESS
             self._glfw_curr_key_state[key] = bool(state)
 
+    def _update_glfw_mouse_state(self) -> None:
+        """Update tracked GLFW mouse button transitions and cursor position."""
+        buttons_to_track = [
+            self._glfw.MOUSE_BUTTON_LEFT,
+            self._glfw.MOUSE_BUTTON_MIDDLE,
+            self._glfw.MOUSE_BUTTON_RIGHT,
+        ]
+        self._glfw_prev_mouse_state = dict(self._glfw_curr_mouse_state)
+        self._glfw_curr_mouse_state = {}
+        for button in buttons_to_track:
+            state = self._glfw.get_mouse_button(self._glfw_window, button) == self._glfw.PRESS
+            self._glfw_curr_mouse_state[button] = bool(state)
+
+        cursor_x, cursor_y = self._glfw.get_cursor_pos(self._glfw_window)
+        self._glfw_mouse_position = (float(cursor_x), float(cursor_y))
+
     def _glfw_keycode(self, key) -> Optional[int]:
         """Map a key name or keycode to GLFW keycode."""
         if isinstance(key, int):
@@ -417,6 +437,66 @@ class Screen:
         if self.backend == "pygame":
             return False
         return bool(self._glfw.window_should_close(self._glfw_window))
+
+    def get_mouse_position(self) -> Optional[Tuple[float, float]]:
+        """Return current mouse position for GLFW backend, otherwise None."""
+        if self.backend != "glfw":
+            return None
+        return self._glfw_mouse_position
+
+    def is_mouse_button_pressed(self, button_index: int) -> bool:
+        """Return True when the mouse button is currently pressed (GLFW only)."""
+        if self.backend != "glfw":
+            return False
+        mapping = {
+            0: self._glfw.MOUSE_BUTTON_LEFT,
+            1: self._glfw.MOUSE_BUTTON_MIDDLE,
+            2: self._glfw.MOUSE_BUTTON_RIGHT,
+        }
+        button = mapping.get(int(button_index))
+        if button is None:
+            return False
+        return bool(self._glfw_curr_mouse_state.get(button, False))
+
+    def was_mouse_button_pressed(self, button_index: int) -> bool:
+        """Return True when the mouse button transitioned to down this frame."""
+        if self.backend != "glfw":
+            return False
+        mapping = {
+            0: self._glfw.MOUSE_BUTTON_LEFT,
+            1: self._glfw.MOUSE_BUTTON_MIDDLE,
+            2: self._glfw.MOUSE_BUTTON_RIGHT,
+        }
+        button = mapping.get(int(button_index))
+        if button is None:
+            return False
+        was_down = self._glfw_prev_mouse_state.get(button, False)
+        is_down = self._glfw_curr_mouse_state.get(button, False)
+        return bool(is_down and not was_down)
+
+    def was_mouse_button_released(self, button_index: int) -> bool:
+        """Return True when the mouse button transitioned to up this frame."""
+        if self.backend != "glfw":
+            return False
+        mapping = {
+            0: self._glfw.MOUSE_BUTTON_LEFT,
+            1: self._glfw.MOUSE_BUTTON_MIDDLE,
+            2: self._glfw.MOUSE_BUTTON_RIGHT,
+        }
+        button = mapping.get(int(button_index))
+        if button is None:
+            return False
+        was_down = self._glfw_prev_mouse_state.get(button, False)
+        is_down = self._glfw_curr_mouse_state.get(button, False)
+        return bool(was_down and not is_down)
+
+    def set_mouse_position(self, x: float, y: float) -> None:
+        """Set cursor position for active backend window."""
+        if self.backend == "pygame":
+            self._pygame.mouse.set_pos((x, y))
+            return
+        self._glfw.set_cursor_pos(self._glfw_window, float(x), float(y))
+        self._glfw_mouse_position = (float(x), float(y))
 
     def __enter__(self):
         """Enter context manager and return this Screen instance."""
