@@ -1,6 +1,12 @@
 # draggable.py
+from __future__ import annotations
 
-import pygame
+from typing import Any, Optional, Tuple
+
+try:
+    import pygame
+except Exception:  # pragma: no cover - optional at runtime in GLFW-only stacks
+    pygame = None
 
 
 class Draggable:
@@ -39,6 +45,45 @@ class DraggableManager:
         self.draggables = []
         self.active = None  # Draggable actuellement en drag
 
+    def _pick_active(self, mx: float, my: float) -> None:
+        """Pick top-most draggable under cursor and bring it to front."""
+        for d in reversed(self.draggables):
+            if d.target.hit_test(mx, my):
+                self.active = d
+                d.dragging = True
+                self.draggables.remove(d)
+                self.draggables.append(d)
+                x1, y1, x2, y2 = d.target.get_bounds()
+                d._last_mouse_pos = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+                return
+
+    def _release_active(self) -> None:
+        if self.active is not None:
+            self.active.dragging = False
+            self.active._last_mouse_pos = None
+            self.active = None
+
+    def _drag_active_with_position(self, current_pos: Optional[Tuple[float, float]]) -> None:
+        if self.active is None or not self.active.dragging or current_pos is None:
+            return
+        lx, ly = self.active._last_mouse_pos or current_pos
+        cx, cy = current_pos
+        x1, y1, x2, y2 = self.active.target.get_bounds()
+        w = x2 - x1
+        h = y2 - y1
+        if self.bounds is None:
+            cx_clamped = cx
+            cy_clamped = cy
+        else:
+            min_x, min_y, max_x, max_y = self.bounds
+            cx_clamped = max(min_x + w / 2.0, min(cx, max_x - w / 2.0))
+            cy_clamped = max(min_y + h / 2.0, min(cy, max_y - h / 2.0))
+        dx = cx_clamped - lx
+        dy = cy_clamped - ly
+        if dx != 0 or dy != 0:
+            self.active.target.move_by(dx, dy)
+        self.active._last_mouse_pos = (cx_clamped, cy_clamped)
+
     def add(self, draggable):
         """
         Ajoute un Draggable.
@@ -58,6 +103,16 @@ class DraggableManager:
         Input:
             response_handler : ResponseHandler
         """
+        # GLFW native path: avoid pygame event dependency.
+        screen = getattr(response_handler, "screen", None)
+        backend = getattr(response_handler, "backend", None) or getattr(screen, "backend", None)
+        if backend == "glfw" and screen is not None:
+            self.update_from_screen(screen)
+            return
+
+        if pygame is None:
+            raise RuntimeError("pygame is required for update_from_response when backend is not GLFW.")
+
         # --- 1) gérer les events press/release ---
         for event in response_handler.events:
             if event.type == pygame.MOUSEBUTTONDOWN:
@@ -132,3 +187,34 @@ class DraggableManager:
 
             # Mise à jour logique
             self.active._last_mouse_pos = (cx_clamped, cy_clamped)
+
+    def update_from_screen(self, screen: Any) -> None:
+        """Update draggable states directly from a GLFW-aware Screen object."""
+        get_mouse = getattr(screen, "get_mouse_position", None)
+        was_pressed = getattr(screen, "was_mouse_button_pressed", None)
+        is_pressed = getattr(screen, "is_mouse_button_pressed", None)
+        was_released = getattr(screen, "was_mouse_button_released", None)
+        if not all(callable(fn) for fn in (get_mouse, was_pressed, is_pressed, was_released)):
+            raise RuntimeError(
+                "update_from_screen requires get_mouse_position/was_mouse_button_pressed/"
+                "is_mouse_button_pressed/was_mouse_button_released methods."
+            )
+
+        current_pos = get_mouse()
+        if was_pressed(self.button_index) and current_pos is not None:
+            mx, my = current_pos
+            self._pick_active(mx, my)
+            if self.active is not None and self.active._last_mouse_pos is not None:
+                cx, cy = self.active._last_mouse_pos
+                set_mouse = getattr(screen, "set_mouse_position", None)
+                if callable(set_mouse):
+                    set_mouse(int(cx), int(cy))
+                    current_pos = get_mouse()
+                else:
+                    current_pos = (cx, cy)
+
+        if self.active is not None:
+            if was_released(self.button_index) or not is_pressed(self.button_index):
+                self._release_active()
+            else:
+                self._drag_active_with_position(current_pos)
