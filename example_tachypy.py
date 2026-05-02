@@ -17,6 +17,7 @@ from tachypy import (
 )
 
 screen_backend = os.environ.get("TACHYPY_BACKEND", "pygame").strip().lower()
+screen_font = os.environ.get("TACHYPY_FONT", "Helvetica").strip() or "Helvetica"
 if screen_backend == "pygame":
     from tachypy import Text
 else:
@@ -24,7 +25,15 @@ else:
 from tachypy import ResponseHandler
 
 
-def run_instruction_screen(screen, response_handler, message, center_x, center_y, fixation_cross):
+def run_instruction_screen(
+    screen,
+    response_handler,
+    message,
+    center_x,
+    center_y,
+    fixation_cross,
+    font_name,
+):
     """
     Show an instruction screen until space or escape.
     Falls back to a no-text mode when pygame font backends are unavailable.
@@ -36,7 +45,7 @@ def run_instruction_screen(screen, response_handler, message, center_x, center_y
             text_obj = Text(
                 message,
                 dest_rect=dest_rect,
-                font_name='Arial',
+                font_name=font_name,
                 font_size=36,
                 color=(25, 50, 255),
             )
@@ -49,7 +58,7 @@ def run_instruction_screen(screen, response_handler, message, center_x, center_y
             text_obj = GLSystemText(
                 message,
                 dest_rect=dest_rect,
-                font_name="Helvetica",
+                font_name=font_name,
                 font_size=36,
                 color=(25, 50, 255),
                 align="center",
@@ -113,6 +122,7 @@ def run_instruction_screen(screen, response_handler, message, center_x, center_y
 
 # Safer demo defaults: primary monitor, windowed mode, and no input grab.
 screen_number = 0
+print(f"TachyPy demo backend: {screen_backend}; font: {screen_font}")
 screen = Screen(
     screen_number=screen_number,
     width=1280,
@@ -267,6 +277,7 @@ if not quit_demo:
         center_x=center_x,
         center_y=center_y,
         fixation_cross=fixation_cross,
+        font_name=screen_font,
     )
 
 if running and not quit_demo:
@@ -277,6 +288,7 @@ if running and not quit_demo:
         center_x=center_x,
         center_y=center_y,
         fixation_cross=fixation_cross,
+        font_name=screen_font,
     )
 
 # Analyze frame intervals after the loop ends

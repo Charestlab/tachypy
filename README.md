@@ -120,6 +120,12 @@ Or explicitly choose backend:
 TACHYPY_BACKEND=glfw python example_tachypy.py
 ```
 
+Choose a font for demo text rendering (works with GLFW `GLSystemText` and pygame `Text`):
+
+```bash
+TACHYPY_BACKEND=glfw TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
+```
+
 ## Backend Notes
 
 - `Screen(backend="pygame")`: SDL/Pygame-managed window and events.
