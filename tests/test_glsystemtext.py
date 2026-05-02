@@ -1,5 +1,6 @@
 import tachypy.glsystemtext as glsys_module
 from tachypy.glsystemtext import GLSystemText
+from pathlib import Path
 
 
 class FakeFallback:
@@ -44,3 +45,23 @@ def test_glsystemtext_fallback_mutators(monkeypatch):
 
     assert text._fallback.text == "next"
     assert text._fallback.dest_rect == [10, 10, 120, 70]
+
+
+def test_resolve_font_path_accepts_direct_path(tmp_path):
+    font_file = tmp_path / "MyFont-Regular.ttf"
+    font_file.write_bytes(b"fake-font")
+
+    resolved = GLSystemText.resolve_font_path(str(font_file))
+    assert resolved == font_file
+
+
+def test_resolve_font_path_uses_best_token_match(monkeypatch):
+    fake_fonts = [
+        Path("/tmp/Arial.ttf"),
+        Path("/tmp/HelveticaNeue-Bold.ttf"),
+        Path("/tmp/TimesNewRoman.ttf"),
+    ]
+    monkeypatch.setattr(GLSystemText, "_iter_system_font_files", staticmethod(lambda: fake_fonts))
+
+    resolved = GLSystemText.resolve_font_path("Helvetica Neue, Arial")
+    assert resolved == Path("/tmp/HelveticaNeue-Bold.ttf")

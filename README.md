@@ -135,6 +135,8 @@ TACHYPY_BACKEND=glfw python example_tachypy.py
 - `Text` is convenience-first and works for most instruction screens.
 - `GLText`/`GLTextSDF`/`GLSystemText` render text directly in OpenGL and are
   backend-independent.
+- `GLSystemText` supports system font selection by family name, fallback list
+  (e.g. `"Avenir Next, Helvetica, Arial"`), or direct font file path.
 - If `pygame.font` is unavailable in your Python build, use `.[text]` or
   `.[system_text]` and switch to OpenGL text classes.
 

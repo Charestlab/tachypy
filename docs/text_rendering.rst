@@ -15,6 +15,8 @@ OpenGL text renderers
 - ``GLText``: bitmap glyph renderer in pure OpenGL.
 - ``GLTextSDF``: signed-distance-field renderer for smoother scaling.
 - ``GLSystemText``: system-font rendering using FreeType + HarfBuzz.
+  You can pass a family name, comma-separated fallback list, or a direct
+  font-file path.
 
 The OpenGL renderers are backend-independent and do not require
 ``pygame.font``.

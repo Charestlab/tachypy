@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -104,7 +105,7 @@ class GLSystemText:
         self._ascender = float(font_size * 0.8)
 
         if HAS_FREETYPE and HAS_HARFBUZZ:
-            font_path = self._find_system_font(self.font_name)
+            font_path = self.resolve_font_path(self.font_name)
             if font_path is not None:
                 try:
                     self._init_system_font(font_path)
@@ -137,38 +138,95 @@ class GLSystemText:
                 )
 
     @staticmethod
-    def _find_system_font(font_name: str) -> Optional[Path]:
-        """Find a matching system font path for a font family/style name."""
-        name = font_name.lower().replace(" ", "")
-        candidates = []
-
-        # macOS
-        candidates.extend(Path("/System/Library/Fonts").glob("**/*"))
-        candidates.extend(Path("/Library/Fonts").glob("**/*"))
-        # Linux
-        candidates.extend(Path("/usr/share/fonts").glob("**/*"))
-        candidates.extend(Path.home().glob(".fonts/**/*"))
-        # Windows
-        candidates.extend(Path("C:/Windows/Fonts").glob("**/*"))
-
-        for path in candidates:
-            if not path.is_file():
-                continue
-            if path.suffix.lower() not in {".ttf", ".otf", ".ttc"}:
-                continue
-            stem = path.stem.lower().replace(" ", "")
-            if name in stem:
-                return path
-
-        # fallback to a known common font on mac
-        default_candidates = [
-            Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
-            Path("/System/Library/Fonts/Supplemental/Helvetica.ttc"),
-            Path("/System/Library/Fonts/Supplemental/Times New Roman.ttf"),
+    def _iter_system_font_files() -> List[Path]:
+        """Return discovered TrueType/OpenType font files from common locations."""
+        files: List[Path] = []
+        font_dirs = [
+            Path("/System/Library/Fonts"),
+            Path("/Library/Fonts"),
+            Path.home() / "Library/Fonts",
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+            Path.home() / ".fonts",
+            Path.home() / ".local" / "share" / "fonts",
+            Path("C:/Windows/Fonts"),
         ]
-        for cand in default_candidates:
-            if cand.exists():
-                return cand
+        for directory in font_dirs:
+            if not directory.exists():
+                continue
+            for path in directory.glob("**/*"):
+                if path.is_file() and path.suffix.lower() in {".ttf", ".otf", ".ttc"}:
+                    files.append(path)
+        return files
+
+    @staticmethod
+    def _tokenize_font_query(font_name: str) -> List[str]:
+        """Normalize a font query into searchable tokens."""
+        normalized = re.sub(r"[^a-z0-9]+", " ", str(font_name).lower()).strip()
+        return [part for part in normalized.split() if part]
+
+    @classmethod
+    def resolve_font_path(cls, font_name: str) -> Optional[Path]:
+        """Resolve a system font from a family/path query.
+
+        Supports:
+        - absolute/relative font file paths
+        - comma-separated fallback font families (e.g. "Avenir, Helvetica, Arial")
+        - partial family/style matching against system font file names
+        """
+        if not font_name:
+            return None
+
+        direct = Path(font_name).expanduser()
+        if direct.is_file():
+            return direct
+
+        candidates = cls._iter_system_font_files()
+        if not candidates:
+            return None
+
+        queries = [q.strip() for q in str(font_name).split(",") if q.strip()]
+        if not queries:
+            queries = [str(font_name)]
+
+        for query in queries:
+            tokens = cls._tokenize_font_query(query)
+            if not tokens:
+                continue
+            best_score = -1
+            best_path = None
+            for path in candidates:
+                stem_tokens = cls._tokenize_font_query(path.stem)
+                stem_joined = " ".join(stem_tokens)
+
+                score = 0
+                for token in tokens:
+                    if token in stem_tokens:
+                        score += 3
+                    elif token in stem_joined:
+                        score += 1
+
+                if score > best_score:
+                    best_score = score
+                    best_path = path
+
+            if best_score > 0 and best_path is not None:
+                return best_path
+
+        # Last-resort defaults.
+        for fallback in (
+            "Helvetica",
+            "Arial",
+            "DejaVu Sans",
+            "Liberation Sans",
+            "Noto Sans",
+            "Times New Roman",
+        ):
+            tokens = cls._tokenize_font_query(fallback)
+            for path in candidates:
+                stem_tokens = cls._tokenize_font_query(path.stem)
+                if all(token in " ".join(stem_tokens) for token in tokens):
+                    return path
         return None
 
     def _init_system_font(self, font_path: Path) -> None:
