@@ -5,29 +5,34 @@ TachyPy is a psychophysics engine for Python focused on precise visual timing wi
 OpenGL rendering, a GLFW-first display/input backend, and experiment-friendly
 stimulus helpers.
 
-![Photodiode timing validation: after-flip trigger aligned to ERG1 response](https://raw.githubusercontent.com/Charestlab/tachypy/main/docs/_static/photodiode_after_flip_waveform.png)
+## Why "TachyPy"?
 
 The name TachyPy comes from the tachistoscope: a classic laboratory instrument
-for presenting visual stimuli for precisely controlled, brief durations. TachyPy
-aims to bring that timing discipline into Python experiments while keeping the
-stimulus code readable and inspectable.
+used to present visual stimuli for precisely controlled, brief durations.
+TachyPy aims to bring that timing discipline into Python experiments while
+keeping stimulus code readable and inspectable.
 
 ![Historical tachistoscope device](https://raw.githubusercontent.com/Charestlab/tachypy/main/docs/_static/tachistoscope-device.png)
 
 ## Timing Validation
 
-TachyPy's GLFW path has been tested with a photodiode setup using a centrally
-presented white square on a uniform gray background. The photodiode was placed
-at the screen center, over the white square, and the EEG recording captured both
-serial trigger events and the photodiode signal on `ERG1`.
+TachyPy's GLFW backend was tested with a photodiode setup using a centrally
+presented white square on a uniform gray background. The white square was shown
+for one frame on a 60 Hz monitor. The photodiode was placed at the screen center,
+over the white square, and the recording captured both serial trigger events and
+the photodiode signal.
 
-In the after-flip trigger condition shown above, the white square was presented
-for one 60 Hz frame. Across 120 flashes, the photodiode pulse width was close to
-one refresh interval and the trigger-to-photodiode alignment was stable:
+![Photodiode timing validation: after-flip trigger aligned to photodiode response](https://raw.githubusercontent.com/Charestlab/tachypy/main/docs/_static/photodiode_after_flip_waveform.png)
 
-- median ERG1 rise after flash trigger: `6.35 ms`
-- SD of ERG1 rise after flash trigger: `0.20 ms`
-- median photodiode pulse width: `16.60 ms`
+In the after-flip trigger condition shown here, the dashed line marks the serial
+flash trigger. The blue trace is the median photodiode waveform, with the shaded
+region showing the 5th to 95th percentile range across flashes.
+
+Summary for this run:
+
+- Median rise after flash trigger: `6.35 ms`
+- SD of rise after flash trigger: `0.20 ms`
+- Median photodiode pulse width: `16.60 ms`
 - SD of photodiode pulse width: `0.18 ms`
 
 These measurements are hardware/display dependent, but they provide a concrete
