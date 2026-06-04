@@ -16,7 +16,7 @@ from tachypy import (
     noisy_bit_dithering,
 )
 
-screen_backend = os.environ.get("TACHYPY_BACKEND", "pygame").strip().lower()
+screen_backend = os.environ.get("TACHYPY_BACKEND", "glfw").strip().lower()
 screen_font = os.environ.get("TACHYPY_FONT", "Helvetica").strip() or "Helvetica"
 if screen_backend == "pygame":
     from tachypy import Text
@@ -36,7 +36,7 @@ def run_instruction_screen(
 ):
     """
     Show an instruction screen until space or escape.
-    Falls back to a no-text mode when pygame font backends are unavailable.
+    Falls back to a no-text mode when text backends are unavailable.
     """
     text_obj = None
     if Text is not None:

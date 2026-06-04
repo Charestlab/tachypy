@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
-import pygame
 import pytest
+
+pygame = pytest.importorskip("pygame")
 
 from tachypy.responses import ResponseHandler
 
@@ -19,7 +20,7 @@ def test_quit_escape_mouse_and_clear_paths(monkeypatch):
     monkeypatch.setattr("tachypy.responses.pygame.mouse.get_pressed", lambda: (True, False, True))
     monkeypatch.setattr("tachypy.responses.pygame.mouse.set_pos", lambda pos: None)
 
-    h = ResponseHandler(keys_to_listen=[pygame.K_ESCAPE, "spacebar"])
+    h = ResponseHandler(keys_to_listen=[pygame.K_ESCAPE, "spacebar"], screen=SimpleNamespace(backend="pygame"))
     h.get_events()
     assert h.should_quit() is True
     assert len(h.get_mouse_clicks()) == 2

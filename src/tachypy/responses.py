@@ -1,7 +1,11 @@
 # responses.py
 import time
+from types import SimpleNamespace
 
-import pygame
+try:
+    import pygame
+except ImportError:  # pragma: no cover - exercised in pygame-free installs.
+    pygame = None
 
 class ResponseHandler:
     """
@@ -13,7 +17,7 @@ class ResponseHandler:
         self.should_exit = False
         self.start_time = time.monotonic_ns()
         self.screen = screen
-        self.backend = getattr(screen, "backend", "pygame") if screen is not None else "pygame"
+        self.backend = getattr(screen, "backend", "glfw") if screen is not None else "glfw"
 
         self.key_presses = []
         self.mouse_clicks = []
@@ -76,6 +80,9 @@ class ResponseHandler:
         if self.backend == "glfw":
             self._get_events_glfw()
             return
+
+        if pygame is None:
+            raise RuntimeError("pygame backend requested but pygame is not installed. Install `tachypy[pygame]`.")
 
         self.events = pygame.event.get()
 
@@ -188,10 +195,7 @@ class ResponseHandler:
         for button_index in (0, 1, 2):
             button_num = button_index + 1
             if was_mouse_button_pressed(button_index):
-                mouse_down = pygame.event.Event(
-                    pygame.MOUSEBUTTONDOWN,
-                    {"button": button_num, "pos": self.mouse_position},
-                )
+                mouse_down = self._make_mouse_event("down", button_num, self.mouse_position)
                 self.events.append(mouse_down)
                 self.mouse_clicks.append(
                     {
@@ -202,10 +206,7 @@ class ResponseHandler:
                     }
                 )
             if was_mouse_button_released(button_index):
-                mouse_up = pygame.event.Event(
-                    pygame.MOUSEBUTTONUP,
-                    {"button": button_num, "pos": self.mouse_position},
-                )
+                mouse_up = self._make_mouse_event("up", button_num, self.mouse_position)
                 self.events.append(mouse_up)
                 self.mouse_clicks.append(
                     {
@@ -215,6 +216,16 @@ class ResponseHandler:
                         "pos": self.mouse_position,
                     }
                 )
+
+    @staticmethod
+    def _make_mouse_event(direction, button, position):
+        """Return a mouse transition event without requiring pygame in GLFW mode."""
+        if pygame is not None:
+            event_type = pygame.MOUSEBUTTONDOWN if direction == "down" else pygame.MOUSEBUTTONUP
+            return pygame.event.Event(event_type, {"button": button, "pos": position})
+
+        event_type = "MOUSEBUTTONDOWN" if direction == "down" else "MOUSEBUTTONUP"
+        return SimpleNamespace(type=event_type, button=button, pos=position)
 
     def should_quit(self):
         """Return whether a quit signal has been received."""
@@ -257,6 +268,8 @@ class ResponseHandler:
                 self.screen.set_mouse_position(x, y)
             self.mouse_position = (x, y)
             return
+        if pygame is None:
+            raise RuntimeError("pygame backend requested but pygame is not installed. Install `tachypy[pygame]`.")
         pygame.mouse.set_pos((x, y))
         self.mouse_position = (x, y)
 
@@ -272,5 +285,5 @@ class ResponseHandler:
         self.held_keycodes.clear()
         self.should_exit = False
         self.events = []
-        if self.backend == "pygame":
+        if self.backend == "pygame" and pygame is not None:
             pygame.event.clear()

@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
-import pygame
+import pytest
+
+pygame = pytest.importorskip("pygame")
 
 from tachypy.responses import ResponseHandler
 
@@ -21,7 +23,7 @@ def test_is_key_down_tracks_held_keys_across_frames(monkeypatch):
     monkeypatch.setattr("tachypy.responses.pygame.mouse.get_pos", lambda: (100, 200))
     monkeypatch.setattr("tachypy.responses.pygame.mouse.get_pressed", lambda: (False, False, False))
 
-    handler = ResponseHandler()
+    handler = ResponseHandler(screen=SimpleNamespace(backend="pygame"))
 
     handler.get_events()
     assert handler.is_key_down("a") is True
@@ -42,7 +44,7 @@ def test_keys_to_listen_filters_untracked_keys(monkeypatch):
     monkeypatch.setattr("tachypy.responses.pygame.mouse.get_pos", lambda: (0, 0))
     monkeypatch.setattr("tachypy.responses.pygame.mouse.get_pressed", lambda: (True, False, False))
 
-    handler = ResponseHandler(keys_to_listen=["a"])
+    handler = ResponseHandler(keys_to_listen=["a"], screen=SimpleNamespace(backend="pygame"))
     handler.get_events()
 
     assert handler.get_key_presses() == []
@@ -63,7 +65,7 @@ def test_space_detection_works_with_keycode_and_name_aliases(monkeypatch):
         lambda key: " " if key == pygame.K_SPACE else "unknown",
     )
 
-    handler = ResponseHandler()
+    handler = ResponseHandler(screen=SimpleNamespace(backend="pygame"))
     handler.get_events()
 
     assert handler.was_key_pressed("space") is True

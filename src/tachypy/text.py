@@ -1,8 +1,12 @@
 import warnings
 
-import pygame
 from OpenGL.GL import *
 from OpenGL.GLU import *
+
+try:
+    import pygame
+except ImportError:  # pragma: no cover - exercised in pygame-free installs.
+    pygame = None
 
 
 class Text:
@@ -64,18 +68,6 @@ class Text:
         if self.backend not in {"auto", "pygame", "pillow"}:
             raise ValueError("Text backend must be 'auto', 'pygame', or 'pillow'.")
 
-        if self.backend in {"auto", "pygame"}:
-            try:
-                pygame.font.init()
-                self._font_obj = pygame.font.SysFont(self.font_name, self.font_size)
-                # Smoke test for environments where pygame.font appears available but fails at render.
-                _ = self._font_obj.size("Ag")
-                self._font_backend = "pygame"
-                return
-            except Exception as err:
-                if self.backend == "pygame":
-                    raise RuntimeError(f"pygame text backend unavailable: {err}") from err
-
         if self.backend in {"auto", "pillow"}:
             try:
                 from PIL import Image, ImageDraw, ImageFont
@@ -90,9 +82,23 @@ class Text:
                 if self.backend == "pillow":
                     raise RuntimeError(f"pillow text backend unavailable: {err}") from err
 
+        if self.backend in {"auto", "pygame"}:
+            try:
+                if pygame is None:
+                    raise ImportError("pygame is not installed")
+                pygame.font.init()
+                self._font_obj = pygame.font.SysFont(self.font_name, self.font_size)
+                # Smoke test for environments where pygame.font appears available but fails at render.
+                _ = self._font_obj.size("Ag")
+                self._font_backend = "pygame"
+                return
+            except Exception as err:
+                if self.backend == "pygame":
+                    raise RuntimeError(f"pygame text backend unavailable: {err}") from err
+
         self._font_available = False
         warnings.warn(
-            "No text backend available. Install a working pygame font stack or Pillow.",
+            "No text backend available. Install Pillow or the legacy pygame extra.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -341,6 +347,9 @@ class TextBox:
             border_color (tuple): RGB color of the text box border.
             border_thickness (int): Thickness of the border in pixels.
         """
+        if pygame is None:
+            raise RuntimeError("TextBox requires pygame. Install `tachypy[pygame]` to use this legacy widget.")
+
         self.position = position
         self.size = size
         self.font = font

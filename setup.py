@@ -9,14 +9,14 @@ with open('requirements.txt') as reqfile:
 
 setup(
     name='tachypy',
-    version='0.1.10',
+    version='0.1.11',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=requires,
     python_requires='>=3.6',
     author='Ian Charest and Frederic Gosselin',
     author_email='charest.ian@gmail.com',
-    description='A package for OpenGL drawing using Pygame.',
+    description='A package for timing-focused psychophysics using GLFW and OpenGL.',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     url='https://github.com/CharestLab/tachypy',

@@ -41,7 +41,7 @@ class Screen:
         vsync: bool = True,
         desired_refresh_rate: int = 60,
         grab_input: bool = True,
-        backend: str = "pygame",
+        backend: str = "glfw",
     ):
         """Initialize display window, OpenGL context, and timing state."""
         self.backend = backend.strip().lower()
@@ -141,7 +141,7 @@ class Screen:
         except ImportError as err:
             raise RuntimeError(
                 "GLFW backend requested but `glfw` is not installed. "
-                "Install with `pip install glfw`."
+                "Install with `pip install tachypy` or `pip install glfw`."
             ) from err
 
         if not glfw.init():

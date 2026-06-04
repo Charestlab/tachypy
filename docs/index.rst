@@ -10,6 +10,7 @@ abstractions for display/input, and helper utilities for experiment workflows.
 
    getting_started
    backends
+   timing_validation
    text_rendering
    audio
    examples

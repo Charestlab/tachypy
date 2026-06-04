@@ -7,7 +7,7 @@ Text class
 ----------
 
 ``Text`` is the convenience layer for instruction screens and simple overlays.
-It tries ``pygame.font`` first, then a Pillow fallback when configured.
+It tries Pillow first by default, with a legacy ``pygame.font`` fallback only when pygame is installed.
 
 OpenGL text renderers
 ---------------------

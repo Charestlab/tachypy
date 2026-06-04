@@ -6,10 +6,10 @@ Display backends
 
 ``Screen`` supports:
 
-- ``backend="pygame"`` (default)
-- ``backend="glfw"``
+- ``backend="glfw"`` (default)
+- ``backend="pygame"`` legacy compatibility backend, installed via ``tachypy[pygame]``
 
-Use GLFW for lower-overhead event/display handling in many setups:
+Use GLFW for the primary timing-focused event/display path:
 
 .. code-block:: python
 
@@ -30,9 +30,9 @@ This avoids mixing Pygame polling with GLFW windows.
 Draggable compatibility
 -----------------------
 
-``DraggableManager`` works with both backends when fed events from
-``ResponseHandler``. In GLFW mode, TachyPy now synthesizes mouse
-down/up transition events so drag interactions match pygame behavior.
+``DraggableManager`` works with the GLFW path when fed events from
+``ResponseHandler``. The legacy pygame path remains available for existing
+experiments that explicitly install ``tachypy[pygame]``.
 
 Coordinate convention
 ---------------------

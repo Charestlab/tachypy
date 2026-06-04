@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import tachypy.text as text_module
 from tachypy.text import Text
 
@@ -48,16 +50,19 @@ def patch_gl_and_pygame(monkeypatch):
     monkeypatch.setattr(text_module, "glTexParameteri", lambda *args, **kwargs: None)
     monkeypatch.setattr(text_module, "glGenTextures", lambda *args, **kwargs: 1)
 
-    monkeypatch.setattr(text_module.pygame, "font", FakeFontModule())
-    monkeypatch.setattr(text_module.pygame, "SRCALPHA", 1)
-    monkeypatch.setattr(text_module.pygame, "Surface", lambda size, flags=None: FakeSurface(size))
-    monkeypatch.setattr(text_module.pygame.image, "tostring", lambda *args, **kwargs: b"fake")
+    fake_pygame = SimpleNamespace(
+        font=FakeFontModule(),
+        SRCALPHA=1,
+        Surface=lambda size, flags=None: FakeSurface(size),
+        image=SimpleNamespace(tostring=lambda *args, **kwargs: b"fake"),
+    )
+    monkeypatch.setattr(text_module, "pygame", fake_pygame)
 
 
 def test_text_can_initialize_without_dest_rect(monkeypatch):
     patch_gl_and_pygame(monkeypatch)
 
-    text = Text(text="Hello TachyPy", dest_rect=None)
+    text = Text(text="Hello TachyPy", dest_rect=None, backend="pygame")
 
     assert text.lines == ["Hello TachyPy"]
 
@@ -65,7 +70,7 @@ def test_text_can_initialize_without_dest_rect(monkeypatch):
 def test_text_handles_empty_content(monkeypatch):
     patch_gl_and_pygame(monkeypatch)
 
-    text = Text(text="", dest_rect=[0, 0, 120, 80])
+    text = Text(text="", dest_rect=[0, 0, 120, 80], backend="pygame")
     text.set_text("")
 
     assert len(text.lines) >= 1

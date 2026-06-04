@@ -2,16 +2,46 @@
 [![Docs Status](https://readthedocs.org/projects/tachypy/badge/?version=latest)](https://tachypy.readthedocs.io/en/latest/?badge=latest)
 
 TachyPy is a psychophysics engine for Python focused on precise visual timing with
-OpenGL rendering, dual display/input backends, and experiment-friendly stimulus
-helpers.
+OpenGL rendering, a GLFW-first display/input backend, and experiment-friendly
+stimulus helpers.
+
+![Photodiode timing validation: after-flip trigger aligned to ERG1 response](https://raw.githubusercontent.com/Charestlab/tachypy/main/docs/_static/photodiode_after_flip_waveform.png)
+
+The name TachyPy comes from the tachistoscope: a classic laboratory instrument
+for presenting visual stimuli for precisely controlled, brief durations. TachyPy
+aims to bring that timing discipline into Python experiments while keeping the
+stimulus code readable and inspectable.
+
+![Historical tachistoscope device](https://raw.githubusercontent.com/Charestlab/tachypy/main/docs/_static/tachistoscope-device.png)
+
+## Timing Validation
+
+TachyPy's GLFW path has been tested with a photodiode setup using a centrally
+presented white square on a uniform gray background. The photodiode was placed
+at the screen center, over the white square, and the EEG recording captured both
+serial trigger events and the photodiode signal on `ERG1`.
+
+In the after-flip trigger condition shown above, the white square was presented
+for one 60 Hz frame. Across 120 flashes, the photodiode pulse width was close to
+one refresh interval and the trigger-to-photodiode alignment was stable:
+
+- median ERG1 rise after flash trigger: `6.35 ms`
+- SD of ERG1 rise after flash trigger: `0.20 ms`
+- median photodiode pulse width: `16.60 ms`
+- SD of photodiode pulse width: `0.18 ms`
+
+These measurements are hardware/display dependent, but they provide a concrete
+validation pattern for TachyPy timing tests: combine serial trigger logging,
+photodiode measurements, and TachyPy flip timestamps rather than relying on
+software timestamps alone.
 
 ## Highlights
 
 - OpenGL stimulus rendering (`Texture`, `Shapes`, fixation, etc.).
-- Two window/input backends via `Screen`: `pygame` (default) and `glfw`.
+- GLFW-first window/input handling via `Screen` for tighter display control.
 - Backend-aware input handling through `ResponseHandler`.
 - Multiple text paths:
-  - `Text` (pygame-font first, Pillow fallback),
+  - `Text` (Pillow-first convenience text; legacy pygame fallback if installed),
   - `GLText` (OpenGL bitmap glyphs),
   - `GLTextSDF` (distance-field text),
   - `GLSystemText` (system fonts via FreeType + HarfBuzz).
@@ -27,6 +57,10 @@ Install base package:
 pip install tachypy
 ```
 
+The base install includes GLFW for display/input, PyOpenGL, Pillow text
+support, and pyserial for serial/trigger workflows. Pygame is no longer a base
+dependency.
+
 Editable install for development:
 
 ```bash
@@ -39,7 +73,7 @@ Optional extras:
 
 ```bash
 pip install -e ".[test]"        # pytest
-pip install -e ".[glfw]"        # GLFW backend
+pip install -e ".[pygame]"      # legacy pygame compatibility backend
 pip install -e ".[text]"        # Pillow text fallback
 pip install -e ".[system_text]" # FreeType + HarfBuzz system-font text
 pip install -e ".[audio_sd]"    # sounddevice backend
@@ -84,7 +118,7 @@ choco install portaudio
 import os
 from tachypy import Screen, ResponseHandler
 
-backend = os.getenv("TACHYPY_BACKEND", "pygame")
+backend = os.getenv("TACHYPY_BACKEND", "glfw")
 screen = Screen(
     screen_number=0,
     fullscreen=False,
@@ -114,13 +148,13 @@ To run the full demo:
 python example_tachypy.py
 ```
 
-Or explicitly choose backend:
+The demo defaults to GLFW. Legacy pygame compatibility remains available if installed:
 
 ```bash
-TACHYPY_BACKEND=glfw python example_tachypy.py
+TACHYPY_BACKEND=pygame python example_tachypy.py
 ```
 
-Choose a font for demo text rendering (works with GLFW `GLSystemText` and pygame `Text`):
+Choose a font for demo text rendering with GLFW `GLSystemText`:
 
 ```bash
 TACHYPY_BACKEND=glfw TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
@@ -128,9 +162,9 @@ TACHYPY_BACKEND=glfw TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example
 
 ## Backend Notes
 
-- `Screen(backend="pygame")`: SDL/Pygame-managed window and events.
 - `Screen(backend="glfw")`: GLFW-managed window/events, with top-left logical
   coordinate handling aligned to TachyPy conventions.
+- `Screen(backend="pygame")`: legacy SDL/Pygame-managed compatibility backend. Install with `tachypy[pygame]`.
 - For robust key/mouse behavior across backends, initialize
   `ResponseHandler(screen=screen)` so it can route event polling correctly.
 - `DraggableManager` now works on both backends when events are read through
@@ -143,8 +177,8 @@ TACHYPY_BACKEND=glfw TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example
   backend-independent.
 - `GLSystemText` supports system font selection by family name, fallback list
   (e.g. `"Avenir Next, Helvetica, Arial"`), or direct font file path.
-- If `pygame.font` is unavailable in your Python build, use `.[text]` or
-  `.[system_text]` and switch to OpenGL text classes.
+- For production instruction text, prefer `GLSystemText` with `.[system_text]`.
+- The legacy pygame text path requires `tachypy[pygame]`.
 
 ## API Naming
 

@@ -14,12 +14,12 @@ Select backend explicitly:
 
 .. code-block:: bash
 
-   TACHYPY_BACKEND=pygame python example_tachypy.py
    TACHYPY_BACKEND=glfw python example_tachypy.py
+   TACHYPY_BACKEND=pygame python example_tachypy.py  # legacy compatibility
 
 Notes
 -----
 
-- If your Python build lacks ``pygame.font``, use OpenGL text renderers
-  (``GLText``, ``GLTextSDF``, or ``GLSystemText``).
+- The demo defaults to GLFW and OpenGL/system-font text renderers.
+- Legacy pygame mode requires installing ``tachypy[pygame]``.
 - On constrained CI systems, set ``TACHYPY_AUDIO_BACKEND=dummy``.

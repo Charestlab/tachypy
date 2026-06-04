@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
-import pygame
+import pytest
+
+pygame = pytest.importorskip("pygame")
 
 from tachypy.draggable import Draggable, DraggableManager
 from tachypy.responses import ResponseHandler
