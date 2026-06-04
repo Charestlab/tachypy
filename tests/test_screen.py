@@ -1,5 +1,6 @@
 import pytest
 
+import tachypy.screen as screen_module
 from tachypy.screen import Screen
 
 
@@ -23,3 +24,76 @@ def test_sleep_duration_for_remaining_ns_behavior():
 def test_screen_rejects_unknown_backend():
     with pytest.raises(ValueError, match="backend"):
         Screen(backend="unknown-backend")
+
+
+def test_pygame_flip_timestamps_immediately_after_swap(monkeypatch):
+    calls = []
+    times = iter([100, 200])
+
+    class FakeDisplay:
+        @staticmethod
+        def flip():
+            calls.append("swap")
+
+    screen = Screen.__new__(Screen)
+    screen.backend = "pygame"
+    screen._pygame = type("FakePygame", (), {"display": FakeDisplay})()
+    screen.last_flip_time = None
+    screen.prev_flip_time = None
+    screen.last_flip_submit_time = None
+    screen.prev_flip_submit_time = None
+    screen.tick = lambda: calls.append("tick")
+
+    def fake_monotonic_ns():
+        value = next(times)
+        calls.append(f"time:{value}")
+        return value
+
+    monkeypatch.setattr(screen_module, "monotonic_ns", fake_monotonic_ns)
+
+    assert screen.flip() == 200
+    assert screen.last_flip_submit_time == 100
+    assert screen.last_flip_time == 200
+    assert calls == ["time:100", "swap", "time:200", "tick"]
+
+
+def test_glfw_flip_timestamps_before_housekeeping(monkeypatch):
+    calls = []
+    times = iter([100, 200])
+
+    class FakeGlfw:
+        @staticmethod
+        def swap_buffers(window):
+            assert window == "window"
+            calls.append("swap")
+
+        @staticmethod
+        def poll_events():
+            calls.append("poll")
+
+    screen = Screen.__new__(Screen)
+    screen.backend = "glfw"
+    screen._glfw = FakeGlfw()
+    screen._glfw_window = "window"
+    screen.last_flip_time = 50
+    screen.prev_flip_time = None
+    screen.last_flip_submit_time = 40
+    screen.prev_flip_submit_time = None
+    screen._sync_glfw_viewport_and_projection = lambda: calls.append("sync")
+    screen._update_glfw_key_state = lambda: calls.append("keys")
+    screen._update_glfw_mouse_state = lambda: calls.append("mouse")
+    screen.tick = lambda: calls.append("tick")
+
+    def fake_monotonic_ns():
+        value = next(times)
+        calls.append(f"time:{value}")
+        return value
+
+    monkeypatch.setattr(screen_module, "monotonic_ns", fake_monotonic_ns)
+
+    assert screen.flip() == 200
+    assert screen.prev_flip_submit_time == 40
+    assert screen.last_flip_submit_time == 100
+    assert screen.prev_flip_time == 50
+    assert screen.last_flip_time == 200
+    assert calls == ["time:100", "swap", "time:200", "poll", "sync", "keys", "mouse", "tick"]

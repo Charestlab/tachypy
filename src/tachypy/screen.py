@@ -58,6 +58,8 @@ class Screen:
 
         self.last_flip_time: Optional[int] = None
         self.prev_flip_time: Optional[int] = None
+        self.last_flip_submit_time: Optional[int] = None
+        self.prev_flip_submit_time: Optional[int] = None
         self._last_tick_time_ns: Optional[int] = None
 
         self.monitor = None
@@ -218,20 +220,31 @@ class Screen:
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
     def flip(self) -> int:
-        """Swap buffers and return the flip timestamp in nanoseconds."""
+        """Swap buffers and return the immediate post-swap timestamp in nanoseconds.
+
+        The returned value is captured immediately after the backend swap call
+        returns, before event polling, viewport synchronization, input updates,
+        or frame-rate housekeeping. It approximates the display swap completion
+        time, not photon onset at a specific screen location.
+        """
+        self.prev_flip_time = self.last_flip_time
+        self.prev_flip_submit_time = self.last_flip_submit_time
+        submit_time = monotonic_ns()
+
         if self.backend == "pygame":
             self._pygame.display.flip()
+            this_time = monotonic_ns()
         else:
             self._glfw.swap_buffers(self._glfw_window)
+            this_time = monotonic_ns()
             self._glfw.poll_events()
             self._sync_glfw_viewport_and_projection()
             self._update_glfw_key_state()
             self._update_glfw_mouse_state()
 
-        self.tick()
-        self.prev_flip_time = self.last_flip_time
-        this_time = monotonic_ns()
+        self.last_flip_submit_time = submit_time
         self.last_flip_time = this_time
+        self.tick()
         return this_time
 
     def get_flip_interval(self) -> Optional[float]:
