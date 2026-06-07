@@ -9,7 +9,7 @@ except ImportError:  # pragma: no cover - exercised in pygame-free installs.
     pygame = None
 
 
-class Text:
+class LegacyText:
     """OpenGL text object with pluggable font backends and texture upload."""
 
     def __init__(
@@ -585,3 +585,9 @@ class TextBox:
         self.cursor_position = 0
         self.submitted = False
         self.update_texture()
+
+
+try:
+    from tachypy.glsystemtext import GLSystemText as Text
+except Exception:  # pragma: no cover - fallback for partial optional installs.
+    Text = LegacyText

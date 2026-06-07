@@ -70,6 +70,7 @@ class Screen:
         self._glfw_window = None
         self._glfw_prev_key_state: Dict[int, bool] = {}
         self._glfw_curr_key_state: Dict[int, bool] = {}
+        self._glfw_keys_to_track = set()
         self._glfw_prev_mouse_state: Dict[int, bool] = {}
         self._glfw_curr_mouse_state: Dict[int, bool] = {}
         self._glfw_mouse_position: Optional[Tuple[float, float]] = None
@@ -380,18 +381,28 @@ class Screen:
 
     def _update_glfw_key_state(self) -> None:
         """Update tracked GLFW key down/up state snapshot."""
-        keys_to_track = [
+        default_keys = [
             self._glfw.KEY_SPACE,
             self._glfw.KEY_ENTER,
             self._glfw.KEY_KP_ENTER,
             self._glfw.KEY_ESCAPE,
             self._glfw.KEY_A,
         ]
+        keys_to_track = sorted(set(default_keys) | self._glfw_keys_to_track)
         self._glfw_prev_key_state = dict(self._glfw_curr_key_state)
         self._glfw_curr_key_state = {}
         for key in keys_to_track:
             state = self._glfw.get_key(self._glfw_window, key) == self._glfw.PRESS
             self._glfw_curr_key_state[key] = bool(state)
+
+    def track_keys(self, keys) -> None:
+        """Register additional GLFW keys for per-frame transition tracking."""
+        if self.backend != "glfw":
+            return
+        for key in keys:
+            code = self._glfw_keycode(key)
+            if code is not None:
+                self._glfw_keys_to_track.add(code)
 
     def _update_glfw_mouse_state(self) -> None:
         """Update tracked GLFW mouse button transitions and cursor position."""
@@ -423,7 +434,13 @@ class Screen:
             "esc": self._glfw.KEY_ESCAPE,
             "a": self._glfw.KEY_A,
         }
-        return mapping.get(key_name)
+        if key_name in mapping:
+            return mapping[key_name]
+        if len(key_name) == 1 and key_name.isalpha():
+            return getattr(self._glfw, f"KEY_{key_name.upper()}", None)
+        if len(key_name) == 1 and key_name.isdigit():
+            return getattr(self._glfw, f"KEY_{key_name}", None)
+        return None
 
     def is_key_down(self, key) -> bool:
         """Return True when key is currently held (GLFW backend only)."""

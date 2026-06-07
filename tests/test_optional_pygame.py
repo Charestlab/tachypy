@@ -49,3 +49,34 @@ def test_glfw_mouse_events_do_not_require_pygame(monkeypatch):
 
     assert handler.events[0].type == "MOUSEBUTTONDOWN"
     assert handler.events[0].button == 1
+
+
+def test_glfw_response_handler_registers_listened_keys(monkeypatch):
+    import tachypy.responses as responses_module
+
+    monkeypatch.setattr(responses_module, "pygame", None)
+
+    class FakeScreen:
+        backend = "glfw"
+
+        def __init__(self):
+            self.tracked_keys = []
+
+        def track_keys(self, keys):
+            self.tracked_keys.extend(keys)
+
+        def should_close(self):
+            return False
+
+        def was_key_pressed(self, key):
+            return key == "r"
+
+        def is_key_down(self, key):
+            return key == "r"
+
+    screen = FakeScreen()
+    handler = ResponseHandler(keys_to_listen=["r"], screen=screen)
+    handler.get_events()
+
+    assert screen.tracked_keys == ["r"]
+    assert handler.was_key_pressed("r") is True

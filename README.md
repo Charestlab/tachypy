@@ -46,10 +46,10 @@ software timestamps alone.
 - GLFW-first window/input handling via `Screen` for tighter display control.
 - Backend-aware input handling through `ResponseHandler`.
 - Multiple text paths:
-  - `Text` (Pillow-first convenience text; legacy pygame fallback if installed),
+  - `Text` (system fonts via FreeType + HarfBuzz; polished default),
   - `GLText` (OpenGL bitmap glyphs),
   - `GLTextSDF` (distance-field text),
-  - `GLSystemText` (system fonts via FreeType + HarfBuzz).
+  - `GLSystemText` (backward-compatible explicit name for `Text`).
 - Psychophysics helpers (`make_gabor`, gratings, normalization, dithering).
 - Audio playback utility (`Audio`) with backend abstraction (`sounddevice` or `dummy`).
 - Test suite for core logic and regressions.
@@ -153,13 +153,28 @@ To run the full demo:
 python example_tachypy.py
 ```
 
+To run the fullscreen GLFW clock/stop-timer demo:
+
+```bash
+tachypy-clock-demo
+```
+
+From a source checkout:
+
+```bash
+python clock_timer_demo.py
+```
+
+Use `Esc` to quit, click `START`/`STOP`/`RESET`, or use `Space` and `R`.
+For development, use `tachypy-clock-demo --windowed` or `python clock_timer_demo.py --windowed`.
+
 The demo defaults to GLFW. Legacy pygame compatibility remains available if installed:
 
 ```bash
 TACHYPY_BACKEND=pygame python example_tachypy.py
 ```
 
-Choose a font for demo text rendering with GLFW `GLSystemText`:
+Choose a font for demo text rendering with GLFW `Text`/`GLSystemText`:
 
 ```bash
 TACHYPY_BACKEND=glfw TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
@@ -177,12 +192,13 @@ TACHYPY_BACKEND=glfw TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example
 
 ## Text Rendering Notes
 
-- `Text` is convenience-first and works for most instruction screens.
+- `Text` is the polished system-font renderer and is equivalent to `GLSystemText`.
 - `GLText`/`GLTextSDF`/`GLSystemText` render text directly in OpenGL and are
   backend-independent.
 - `GLSystemText` supports system font selection by family name, fallback list
   (e.g. `"Avenir Next, Helvetica, Arial"`), or direct font file path.
-- For production instruction text, prefer `GLSystemText` with `.[system_text]`.
+- For production instruction text, prefer `Text` with `.[system_text]`.
+- The old texture-backed constructor is backbenched as `tachypy.text.LegacyText`.
 - The legacy pygame text path requires `tachypy[pygame]`.
 
 ## API Naming

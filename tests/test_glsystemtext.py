@@ -1,4 +1,5 @@
 import tachypy.glsystemtext as glsys_module
+import tachypy.text as text_module
 from tachypy.glsystemtext import GLSystemText
 from pathlib import Path
 
@@ -32,6 +33,10 @@ def test_glsystemtext_falls_back_when_deps_unavailable(monkeypatch):
     assert text._fallback is not None
     text.draw()
     assert text._fallback.draw_called is True
+
+
+def test_text_alias_points_to_glsystemtext():
+    assert text_module.Text is GLSystemText
 
 
 def test_glsystemtext_fallback_mutators(monkeypatch):

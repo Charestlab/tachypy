@@ -1,5 +1,6 @@
 include README.md
 include LICENSE
 include requirements.txt
+include clock_timer_demo.py
 recursive-include src/tachypy *.py
 global-exclude .DS_Store

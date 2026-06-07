@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import tachypy.text as text_module
-from tachypy.text import Text
+from tachypy.text import LegacyText
 
 
 class FakeSurface:
@@ -59,18 +59,18 @@ def patch_gl_and_pygame(monkeypatch):
     monkeypatch.setattr(text_module, "pygame", fake_pygame)
 
 
-def test_text_can_initialize_without_dest_rect(monkeypatch):
+def test_legacy_text_can_initialize_without_dest_rect(monkeypatch):
     patch_gl_and_pygame(monkeypatch)
 
-    text = Text(text="Hello TachyPy", dest_rect=None, backend="pygame")
+    text = LegacyText(text="Hello TachyPy", dest_rect=None, backend="pygame")
 
     assert text.lines == ["Hello TachyPy"]
 
 
-def test_text_handles_empty_content(monkeypatch):
+def test_legacy_text_handles_empty_content(monkeypatch):
     patch_gl_and_pygame(monkeypatch)
 
-    text = Text(text="", dest_rect=[0, 0, 120, 80], backend="pygame")
+    text = LegacyText(text="", dest_rect=[0, 0, 120, 80], backend="pygame")
     text.set_text("")
 
     assert len(text.lines) >= 1

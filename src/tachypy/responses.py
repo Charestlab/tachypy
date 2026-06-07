@@ -38,6 +38,9 @@ class ResponseHandler:
         self.keys_to_listen = keys_to_listen
         self.events = []
         self._default_glfw_keys = ["space", "enter", "kp_enter", "escape", "a"]
+        if self.backend == "glfw" and self.screen is not None and hasattr(self.screen, "track_keys"):
+            keys_to_track = self.keys_to_listen if self.keys_to_listen is not None else self._default_glfw_keys
+            self.screen.track_keys(keys_to_track)
 
     @staticmethod
     def _normalize_key_name(key_name):

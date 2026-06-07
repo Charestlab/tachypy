@@ -56,7 +56,7 @@ _EXPORT_MAP = {
     "center_rect_on_point": ("tachypy.shapes", "center_rect_on_point"),
     "ResponseHandler": ("tachypy.responses", "ResponseHandler"),
     "Scrollbar": ("tachypy.scrollbar", "Scrollbar"),
-    "Text": ("tachypy.text", "Text"),
+    "Text": ("tachypy.glsystemtext", "GLSystemText"),
     "TextBox": ("tachypy.text", "TextBox"),
     "GLText": ("tachypy.gltext", "GLText"),
     "GLTextSDF": ("tachypy.gltext_sdf", "GLTextSDF"),

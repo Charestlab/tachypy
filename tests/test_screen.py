@@ -97,3 +97,33 @@ def test_glfw_flip_timestamps_before_housekeeping(monkeypatch):
     assert screen.prev_flip_time == 50
     assert screen.last_flip_time == 200
     assert calls == ["time:100", "swap", "time:200", "poll", "sync", "keys", "mouse", "tick"]
+
+
+def test_glfw_track_keys_supports_generic_letter_names():
+    class FakeGlfw:
+        KEY_SPACE = 32
+        KEY_ENTER = 257
+        KEY_KP_ENTER = 335
+        KEY_ESCAPE = 256
+        KEY_A = 65
+        KEY_R = 82
+        PRESS = 1
+
+        @staticmethod
+        def get_key(window, key):
+            assert window == "window"
+            return FakeGlfw.PRESS if key == FakeGlfw.KEY_R else 0
+
+    screen = Screen.__new__(Screen)
+    screen.backend = "glfw"
+    screen._glfw = FakeGlfw()
+    screen._glfw_window = "window"
+    screen._glfw_prev_key_state = {}
+    screen._glfw_curr_key_state = {}
+    screen._glfw_keys_to_track = set()
+
+    screen.track_keys(["r"])
+    screen._update_glfw_key_state()
+
+    assert screen.was_key_pressed("r") is True
+    assert screen.is_key_down("r") is True

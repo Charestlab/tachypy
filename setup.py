@@ -9,7 +9,7 @@ with open('requirements.txt') as reqfile:
 
 setup(
     name='tachypy',
-    version='0.1.11',
+    version='0.1.12',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=requires,
@@ -30,4 +30,9 @@ setup(
         'Programming Language :: Python :: 3.11',
         'Operating System :: OS Independent',
     ],
+    entry_points={
+        'console_scripts': [
+            'tachypy-clock-demo=tachypy.examples.clock_timer_demo:main',
+        ],
+    },
 )
