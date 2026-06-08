@@ -1,11 +1,8 @@
 import os
-import time
 import numpy as np
 from tachypy import (
     Audio,
-    GLText,
-    GLSystemText,
-    GLTextSDF,
+    Text,
     Screen,
     Texture,
     Circle,
@@ -14,15 +11,10 @@ from tachypy import (
     center_rect_on_point,
     fabriquer_gabor,
     noisy_bit_dithering,
+    ResponseHandler,
 )
 
-screen_backend = os.environ.get("TACHYPY_BACKEND", "glfw").strip().lower()
 screen_font = os.environ.get("TACHYPY_FONT", "Helvetica").strip() or "Helvetica"
-if screen_backend == "pygame":
-    from tachypy import Text
-else:
-    Text = None
-from tachypy import ResponseHandler
 
 
 def run_instruction_screen(
@@ -31,98 +23,46 @@ def run_instruction_screen(
     message,
     center_x,
     center_y,
-    fixation_cross,
     font_name,
 ):
     """
     Show an instruction screen until space or escape.
-    Falls back to a no-text mode when text backends are unavailable.
     """
-    text_obj = None
-    if Text is not None:
-        try:
-            dest_rect = center_rect_on_point([0, 0, .85 * screen.width, .2 * screen.height], [center_x, center_y])
-            text_obj = Text(
-                message,
-                dest_rect=dest_rect,
-                font_name=font_name,
-                font_size=36,
-                color=(25, 50, 255),
-            )
-        except Exception as err:
-            print(f"Warning: text rendering unavailable ({err}). Falling back to fixation-only prompt.")
-            print("Press spacebar to continue or escape to quit.")
-    elif screen.backend == "glfw":
-        dest_rect = center_rect_on_point([0, 0, .85 * screen.width, .2 * screen.height], [center_x, center_y])
-        try:
-            text_obj = GLSystemText(
-                message,
-                dest_rect=dest_rect,
-                font_name=font_name,
-                font_size=36,
-                color=(25, 50, 255),
-                align="center",
-            )
-        except Exception:
-            try:
-                text_obj = GLTextSDF(
-                    message,
-                    dest_rect=dest_rect,
-                    color=(25, 50, 255),
-                    pixel_size=4.0,
-                    line_spacing=2.0,
-                    align="center",
-                )
-            except Exception:
-                text_obj = GLText(
-                    message,
-                    dest_rect=dest_rect,
-                    color=(25, 50, 255),
-                    pixel_size=4.0,
-                    line_spacing=2.0,
-                    align="center",
-                )
+    dest_rect = center_rect_on_point([0, 0, .85 * screen.width, .2 * screen.height], [center_x, center_y])
+    text_obj = Text(
+        message,
+        dest_rect=dest_rect,
+        font_name=font_name,
+        font_size=36,
+        color=(25, 50, 255),
+        align="center",
+    )
 
-    if response_handler is not None:
-        response_handler.clear_events()
+    response_handler.clear_events()
 
     running = True
     while running:
         screen.fill((128, 128, 128))
-        if text_obj is not None:
-            text_obj.draw()
-        else:
-            fixation_cross.draw()
+        text_obj.draw()
         screen.flip()
 
-        if screen.backend == "glfw":
-            if screen.should_close() or screen.was_key_pressed("escape"):
-                return False
-            if (
-                screen.was_key_pressed("space")
-                or screen.was_key_pressed("enter")
-                or screen.was_key_pressed("kp_enter")
-            ):
-                print("Spacebar pressed!")
-                return True
-        else:
-            response_handler.get_events()
-            if response_handler.should_quit():
-                return False
+        response_handler.get_events()
+        if response_handler.should_quit():
+            return False
 
-            if (
-                response_handler.was_key_pressed("space")
-                or response_handler.was_key_pressed("enter")
-                or response_handler.was_key_pressed("kp_enter")
-            ):
-                print("Spacebar pressed!")
-                return True
+        if (
+            response_handler.was_key_pressed("space")
+            or response_handler.was_key_pressed("enter")
+            or response_handler.was_key_pressed("kp_enter")
+        ):
+            print("Spacebar pressed!")
+            return True
 
     return True
 
 # Safer demo defaults: primary monitor, windowed mode, and no input grab.
 screen_number = 0
-print(f"TachyPy demo backend: {screen_backend}; font: {screen_font}")
+print(f"TachyPy demo font: {screen_font}")
 screen = Screen(
     screen_number=screen_number,
     width=1280,
@@ -130,7 +70,6 @@ screen = Screen(
     fullscreen=False,
     desired_refresh_rate=60,
     grab_input=False,
-    backend=screen_backend,
 )
 
 # get some relevant screen properties
@@ -207,8 +146,8 @@ advance_stage = False
 # Track frame timestamps to measure interval consistency
 frame_intervals = []
 
-# flip an initial screen and set initial time
-start_time = screen.flip()
+# flip an initial screen
+screen.flip()
 
 while running and not quit_demo and not advance_stage:
     for current_trial, texture in enumerate(textures):
@@ -228,47 +167,29 @@ while running and not quit_demo and not advance_stage:
         # draw the fixation cross
         fixation_cross.draw()
 
-        time_stamp = screen.flip()
+        screen.flip()
 
         frame_intervals.append(screen.get_flip_interval()) 
 
-        # Handle events
-        if screen.backend == "glfw":
-            if screen.should_close() or screen.was_key_pressed("escape"):
-                quit_demo = True
-                break
-            if (
-                screen.was_key_pressed("space")
-                or screen.was_key_pressed("enter")
-                or screen.was_key_pressed("kp_enter")
-            ):
-                advance_stage = True
-                break
-            if screen.is_key_down("a"):
-                print("a key pressed!")
-                audio_player.play(waveform)
-        else:
-            response_handler.get_events()
-            if response_handler.should_quit():
-                quit_demo = True
-                break
+        response_handler.get_events()
+        if response_handler.should_quit():
+            quit_demo = True
+            break
 
-            # Advance to next demo stage with space/enter.
-            if (
-                response_handler.was_key_pressed("space")
-                or response_handler.was_key_pressed("enter")
-                or response_handler.was_key_pressed("kp_enter")
-            ):
-                advance_stage = True
-                break
+        # Advance to next demo stage with space/enter.
+        if (
+            response_handler.was_key_pressed("space")
+            or response_handler.was_key_pressed("enter")
+            or response_handler.was_key_pressed("kp_enter")
+        ):
+            advance_stage = True
+            break
 
-            # Example: Check if the a key was pressed
-            if response_handler.is_key_down('a'):
-                print("a key pressed!")
-                audio_player.play(waveform)
+        # Example: Check if the a key was pressed
+        if response_handler.is_key_down("a"):
+            print("a key pressed!")
+            audio_player.play(waveform)
         
-   #time.sleep(0.01)
-
 if not quit_demo:
     running = run_instruction_screen(
         screen=screen,
@@ -276,7 +197,6 @@ if not quit_demo:
         message="Thanks for using tachypy. Here is a long sentence that should be rendered on multiple lines. Only if that is necessary, of course. Press spacebar to continue with this demonstration.",
         center_x=center_x,
         center_y=center_y,
-        fixation_cross=fixation_cross,
         font_name=screen_font,
     )
 
@@ -287,7 +207,6 @@ if running and not quit_demo:
         message="Here is a shorter instruction. Press spacebar to quit.",
         center_x=center_x,
         center_y=center_y,
-        fixation_cross=fixation_cross,
         font_name=screen_font,
     )
 

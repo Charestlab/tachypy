@@ -120,16 +120,13 @@ choco install portaudio
 ## Quick Start
 
 ```python
-import os
 from tachypy import Screen, ResponseHandler
 
-backend = os.getenv("TACHYPY_BACKEND", "glfw")
 screen = Screen(
     screen_number=0,
     fullscreen=False,
     width=1280,
     height=720,
-    backend=backend,
 )
 responses = ResponseHandler(screen=screen)
 
@@ -168,22 +165,17 @@ python clock_timer_demo.py
 Use `Esc` to quit, click `START`/`STOP`/`RESET`, or use `Space` and `R`.
 For development, use `tachypy-clock-demo --windowed` or `python clock_timer_demo.py --windowed`.
 
-The demo defaults to GLFW. Legacy pygame compatibility remains available if installed:
-
-```bash
-TACHYPY_BACKEND=pygame python example_tachypy.py
-```
-
 Choose a font for demo text rendering with GLFW `Text`/`GLSystemText`:
 
 ```bash
-TACHYPY_BACKEND=glfw TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
+TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
 ```
 
 ## Backend Notes
 
 - `Screen(backend="glfw")`: GLFW-managed window/events, with top-left logical
   coordinate handling aligned to TachyPy conventions.
+- `Screen(...)` defaults to GLFW, so most code does not need a backend argument.
 - `Screen(backend="pygame")`: legacy SDL/Pygame-managed compatibility backend. Install with `tachypy[pygame]`.
 - For robust key/mouse behavior across backends, initialize
   `ResponseHandler(screen=screen)` so it can route event polling correctly.

@@ -38,7 +38,7 @@ Minimal loop
 
    from tachypy import Screen, ResponseHandler
 
-   screen = Screen(fullscreen=False, width=1280, height=720, backend="glfw")
+   screen = Screen(fullscreen=False, width=1280, height=720)
    responses = ResponseHandler(screen=screen)
 
    running = True

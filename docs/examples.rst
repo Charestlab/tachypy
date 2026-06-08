@@ -29,16 +29,15 @@ Use ``Esc`` to quit, click ``START``/``STOP``/``RESET``, or use ``Space`` and
 
    tachypy-clock-demo --windowed
 
-Select backend explicitly:
+Run the default demo:
 
 .. code-block:: bash
 
-   TACHYPY_BACKEND=glfw python example_tachypy.py
-   TACHYPY_BACKEND=pygame python example_tachypy.py  # legacy compatibility
+   python example_tachypy.py
 
 Notes
 -----
 
-- The demo defaults to GLFW and OpenGL/system-font text renderers.
+- ``Screen`` defaults to GLFW, and ``Text`` defaults to the system-font renderer.
 - Legacy pygame mode requires installing ``tachypy[pygame]``.
 - On constrained CI systems, set ``TACHYPY_AUDIO_BACKEND=dummy``.
