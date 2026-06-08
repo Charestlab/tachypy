@@ -80,7 +80,6 @@ Optional extras:
 pip install -e ".[test]"        # pytest
 pip install -e ".[pygame]"      # legacy pygame compatibility backend
 pip install -e ".[text]"        # Pillow text fallback
-pip install -e ".[system_text]" # FreeType + HarfBuzz system-font text
 pip install -e ".[audio_sd]"    # sounddevice backend
 ```
 

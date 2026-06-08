@@ -28,7 +28,6 @@ Optional extras
    pip install -e ".[test]"        # pytest, coverage, lint tooling
    pip install -e ".[pygame]"      # legacy pygame compatibility backend
    pip install -e ".[text]"        # Pillow text fallback
-   pip install -e ".[system_text]" # FreeType + HarfBuzz text renderer
    pip install -e ".[audio_sd]"    # sounddevice backend
 
 Minimal loop
