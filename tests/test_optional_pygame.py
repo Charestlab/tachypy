@@ -29,6 +29,60 @@ class Target:
         return self.x1, self.y1, self.x2, self.y2
 
 
+class FakePygame:
+    QUIT = 0
+    KEYDOWN = 1
+    KEYUP = 2
+    MOUSEBUTTONDOWN = 3
+    MOUSEBUTTONUP = 4
+    K_ESCAPE = 27
+    K_a = 97
+
+    class key:
+        @staticmethod
+        def name(key_code):
+            if key_code == FakePygame.K_ESCAPE:
+                return "escape"
+            if key_code == FakePygame.K_a:
+                return "a"
+            return "unknown"
+
+    class EventModule:
+        def __init__(self):
+            self.events = []
+            self.cleared = False
+
+        def get(self):
+            events = list(self.events)
+            self.events = []
+            return events
+
+        def clear(self):
+            self.cleared = True
+
+        @staticmethod
+        def Event(event_type, attrs):
+            return SimpleNamespace(type=event_type, **attrs)
+
+    class MouseModule:
+        def __init__(self):
+            self.position = (0, 0)
+            self.pressed = (False, False, False)
+
+        def get_pos(self):
+            return self.position
+
+        def get_pressed(self):
+            return self.pressed
+
+        def set_pos(self, position):
+            self.position = position
+
+    def __init__(self):
+        self.event = self.EventModule()
+        self.mouse = self.MouseModule()
+
+
 def test_pygame_backend_requires_pygame_when_missing(monkeypatch):
     import tachypy.responses as responses_module
 
@@ -198,3 +252,82 @@ def test_draggable_requires_screen_methods_for_glfw():
     manager = DraggableManager()
     with pytest.raises(RuntimeError, match="update_from_screen requires"):
         manager.update_from_screen(SimpleNamespace())
+
+
+def test_response_handler_pygame_path_with_fake_pygame(monkeypatch):
+    import tachypy.responses as responses_module
+
+    fake_pygame = FakePygame()
+    fake_pygame.event.events = [
+        SimpleNamespace(type=FakePygame.KEYDOWN, key=FakePygame.K_a),
+        SimpleNamespace(type=FakePygame.KEYUP, key=FakePygame.K_a),
+        SimpleNamespace(type=FakePygame.KEYDOWN, key=FakePygame.K_ESCAPE),
+        SimpleNamespace(type=FakePygame.MOUSEBUTTONDOWN, button=1, pos=(4, 5)),
+        SimpleNamespace(type=FakePygame.MOUSEBUTTONUP, button=1, pos=(6, 7)),
+        SimpleNamespace(type=FakePygame.QUIT),
+    ]
+    fake_pygame.mouse.position = (11, 12)
+    fake_pygame.mouse.pressed = (True, False, True)
+    monkeypatch.setattr(responses_module, "pygame", fake_pygame)
+
+    handler = ResponseHandler(keys_to_listen=["a"], screen=SimpleNamespace(backend="pygame"))
+    handler.get_events()
+
+    assert handler.should_quit() is True
+    assert handler.was_key_pressed("a") is True
+    assert handler.is_key_down("a") is False
+    assert handler.was_key_pressed(FakePygame.K_a) is True
+    assert handler.is_mouse_button_pressed(0) is True
+    assert handler.is_mouse_button_pressed(3) is False
+    assert handler.get_mouse_position() == (11, 12)
+    assert len(handler.get_mouse_clicks()) == 2
+
+    handler.set_position(20, 21)
+    assert handler.get_mouse_position() == (20, 21)
+
+    handler.clear_events()
+    assert fake_pygame.event.cleared is True
+    assert handler.should_quit() is False
+    assert handler.get_key_presses() == []
+
+
+def test_draggable_pygame_path_with_fake_pygame(monkeypatch):
+    import tachypy.draggable as draggable_module
+
+    fake_pygame = FakePygame()
+    monkeypatch.setattr(draggable_module, "pygame", fake_pygame)
+
+    target = Target((0, 0, 10, 10))
+    draggable = Draggable(target)
+    manager = DraggableManager(button_index=0, screen_width=100, screen_height=100)
+    manager.add(draggable)
+
+    response = SimpleNamespace(
+        backend="pygame",
+        screen=None,
+        events=[
+            SimpleNamespace(type=FakePygame.MOUSEBUTTONDOWN, button=1, pos=(5, 5)),
+        ],
+        mouse_position=(5, 5),
+        set_position=lambda x, y: setattr(response, "mouse_position", (x, y)),
+        get_mouse_position=lambda: response.mouse_position,
+    )
+    manager.update_from_response(response)
+
+    assert manager.active is draggable
+    assert draggable.dragging is True
+    assert response.mouse_position == (5, 5)
+
+    response.events = []
+    response.mouse_position = (200, 200)
+    manager.update_from_response(response)
+    assert target.x2 <= 100
+    assert target.y2 <= 100
+
+    response.events = [
+        SimpleNamespace(type=FakePygame.MOUSEBUTTONUP, button=1, pos=response.mouse_position),
+    ]
+    manager.update_from_response(response)
+
+    assert manager.active is None
+    assert draggable.dragging is False
