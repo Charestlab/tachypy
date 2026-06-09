@@ -15,6 +15,22 @@ Use GLFW for the primary timing-focused event/display path:
 
    screen = Screen(backend="glfw", fullscreen=True, vsync=True)
 
+Display warmup
+--------------
+
+``Screen`` presents neutral gray warmup frames during initialization before the
+caller starts experiment timing. This is enabled by default because photodiode
+testing showed more stable behavior after the first frames following window and
+OpenGL context creation.
+
+.. code-block:: python
+
+   screen = Screen(warmup_frames=60)  # default, about 1 s at 60 Hz
+   screen = Screen(warmup_frames=0)   # disable if you need manual control
+
+Warmup flip timestamps are cleared after the warmup sequence, so the first
+experiment flip starts with a clean ``Screen`` timing state.
+
 Input/event handling
 --------------------
 

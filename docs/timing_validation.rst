@@ -53,3 +53,11 @@ For timing-critical validation, combine:
 - TachyPy flip timestamps.
 - Serial trigger timestamps in the acquisition system.
 - Photodiode traces at the relevant stimulus location.
+
+Practical implication
+---------------------
+
+The first frames after display/context creation can be less stable on real
+hardware. TachyPy therefore presents neutral gray warmup frames by default when
+``Screen`` is initialized. The warmup can be tuned with ``warmup_frames`` or
+disabled with ``warmup_frames=0``.

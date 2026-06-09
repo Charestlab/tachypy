@@ -175,6 +175,9 @@ TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
 - `Screen(backend="glfw")`: GLFW-managed window/events, with top-left logical
   coordinate handling aligned to TachyPy conventions.
 - `Screen(...)` defaults to GLFW, so most code does not need a backend argument.
+- `Screen(...)` also presents 60 neutral warmup frames by default before
+  experiment timing begins; set `warmup_frames=0` to disable or choose another
+  count for a specific display.
 - `Screen(backend="pygame")`: legacy SDL/Pygame-managed compatibility backend. Install with `tachypy[pygame]`.
 - For robust key/mouse behavior across backends, initialize
   `ResponseHandler(screen=screen)` so it can route event polling correctly.

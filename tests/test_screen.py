@@ -26,6 +26,41 @@ def test_screen_rejects_unknown_backend():
         Screen(backend="unknown-backend")
 
 
+def test_screen_rejects_negative_warmup_frames():
+    with pytest.raises(ValueError, match="warmup_frames"):
+        Screen(backend="glfw", warmup_frames=-1)
+
+
+def test_warm_up_display_flips_neutral_frames_and_resets_timing():
+    calls = []
+    screen = Screen.__new__(Screen)
+    screen.warmup_frames = 3
+    screen.warmup_color = (128, 128, 128)
+    screen.last_flip_time = 10
+    screen.prev_flip_time = 5
+    screen.last_flip_submit_time = 9
+    screen.prev_flip_submit_time = 4
+    screen._last_tick_time_ns = 1
+    screen.fill = lambda color: calls.append(("fill", color))
+    screen.flip = lambda: calls.append(("flip", None))
+
+    screen._warm_up_display()
+
+    assert calls == [
+        ("fill", (128, 128, 128)),
+        ("flip", None),
+        ("fill", (128, 128, 128)),
+        ("flip", None),
+        ("fill", (128, 128, 128)),
+        ("flip", None),
+    ]
+    assert screen.last_flip_time is None
+    assert screen.prev_flip_time is None
+    assert screen.last_flip_submit_time is None
+    assert screen.prev_flip_submit_time is None
+    assert screen._last_tick_time_ns is None
+
+
 def test_pygame_flip_timestamps_immediately_after_swap(monkeypatch):
     calls = []
     times = iter([100, 200])

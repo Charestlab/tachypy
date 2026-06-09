@@ -42,11 +42,15 @@ class Screen:
         desired_refresh_rate: int = 60,
         grab_input: bool = True,
         backend: str = "glfw",
+        warmup_frames: int = 60,
+        warmup_color: Sequence[float] = (128, 128, 128),
     ):
         """Initialize display window, OpenGL context, and timing state."""
         self.backend = backend.strip().lower()
         if self.backend not in {"pygame", "glfw"}:
             raise ValueError("backend must be 'pygame' or 'glfw'")
+        if int(warmup_frames) < 0:
+            raise ValueError("warmup_frames must be >= 0")
 
         self.width = int(width) if width is not None else None
         self.height = int(height) if height is not None else None
@@ -54,6 +58,8 @@ class Screen:
         self.vsync = bool(vsync)
         self.desired_refresh_rate = int(desired_refresh_rate)
         self.grab_input = bool(grab_input)
+        self.warmup_frames = int(warmup_frames)
+        self.warmup_color = tuple(warmup_color)
         self.mouse_visible = True
 
         self.last_flip_time: Optional[int] = None
@@ -81,7 +87,7 @@ class Screen:
             self._init_glfw_backend(screen_number)
 
         self._init_opengl_state()
-        self.flip()
+        self._warm_up_display()
 
         if self.backend == "pygame":
             self._pygame.event.get()
@@ -219,6 +225,21 @@ class Screen:
         glDisable(GL_TEXTURE_2D)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+    def _reset_flip_timing(self) -> None:
+        """Clear flip/tick timestamps after non-experiment setup frames."""
+        self.last_flip_time = None
+        self.prev_flip_time = None
+        self.last_flip_submit_time = None
+        self.prev_flip_submit_time = None
+        self._last_tick_time_ns = None
+
+    def _warm_up_display(self) -> None:
+        """Present neutral frames before the caller starts experiment timing."""
+        for _ in range(self.warmup_frames):
+            self.fill(self.warmup_color)
+            self.flip()
+        self._reset_flip_timing()
 
     def flip(self) -> int:
         """Swap buffers and return the immediate post-swap timestamp in nanoseconds.
