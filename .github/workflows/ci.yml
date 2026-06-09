@@ -49,7 +49,7 @@ jobs:
         run: sphinx-build -b html docs docs/_build/html
 
   tests:
-    name: tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    name: tests (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
