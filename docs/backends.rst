@@ -34,14 +34,15 @@ experiment flip starts with a clean ``Screen`` timing state.
 Input/event handling
 --------------------
 
-Always pass the screen object to ``ResponseHandler`` so event polling matches
-the active backend:
+Always pass the screen object to ``ResponseHandler`` so input state is read from
+the active display backend:
 
 .. code-block:: python
 
    responses = ResponseHandler(screen=screen)
 
-This avoids mixing Pygame polling with GLFW windows.
+This is required for GLFW because key and mouse state are tracked by
+``Screen``. It also keeps legacy pygame experiments on the correct event path.
 
 Draggable compatibility
 -----------------------
