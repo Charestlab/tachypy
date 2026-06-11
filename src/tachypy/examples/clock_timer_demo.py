@@ -269,7 +269,7 @@ def run_demo(args: argparse.Namespace) -> None:
                 break
             if responses.was_key_pressed("space"):
                 stopwatch.toggle()
-            reset_key_is_down = responses.is_key_down("r") or screen.is_key_down("r")
+            reset_key_is_down = responses.is_key_down("r")
             if responses.was_key_pressed("r") or (reset_key_is_down and not reset_key_was_down):
                 stopwatch.reset()
             reset_key_was_down = reset_key_is_down

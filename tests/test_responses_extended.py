@@ -1,64 +1,57 @@
-from types import SimpleNamespace
-
-import pytest
-
-pygame = pytest.importorskip("pygame")
-
+from fake_glfw import FakeGlfw, FakeScreen
 from tachypy.responses import ResponseHandler
 
 
-def test_quit_escape_mouse_and_clear_paths(monkeypatch):
-    events = [
-        SimpleNamespace(type=pygame.QUIT),
-        SimpleNamespace(type=pygame.KEYDOWN, key=pygame.K_ESCAPE),
-        SimpleNamespace(type=pygame.MOUSEBUTTONDOWN, button=1, pos=(1, 2)),
-        SimpleNamespace(type=pygame.MOUSEBUTTONUP, button=1, pos=(3, 4)),
-    ]
-    monkeypatch.setattr("tachypy.responses.pygame.event.get", lambda: events)
-    monkeypatch.setattr("tachypy.responses.pygame.event.clear", lambda: None)
-    monkeypatch.setattr("tachypy.responses.pygame.mouse.get_pos", lambda: (11, 22))
-    monkeypatch.setattr("tachypy.responses.pygame.mouse.get_pressed", lambda: (True, False, True))
-    monkeypatch.setattr("tachypy.responses.pygame.mouse.set_pos", lambda pos: None)
+def test_escape_or_window_close_sets_quit():
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
 
-    h = ResponseHandler(keys_to_listen=[pygame.K_ESCAPE, "spacebar"], screen=SimpleNamespace(backend="pygame"))
-    h.get_events()
-    assert h.should_quit() is True
-    assert len(h.get_mouse_clicks()) == 2
-    h.set_position(7, 8)
-    assert h.get_mouse_position() == (7, 8)
-    h.clear_events()
-    assert h.get_key_presses() == []
-    assert h.get_mouse_clicks() == []
-    assert h.should_quit() is False
+    screen._glfw.down_keys = {FakeGlfw.KEY_ESCAPE}
+    handler.get_events()
+    assert handler.should_quit() is True
+
+    handler.clear_events()
+    screen._glfw.down_keys = set()
+    screen._glfw.closed = True
+    handler.get_events()
+    assert handler.should_quit() is True
 
 
-def test_glfw_release_and_missing_screen_error():
-    h = ResponseHandler(screen=SimpleNamespace(backend="glfw"))
-    with pytest.raises(RuntimeError, match="requires `screen`"):
-        h.screen = None
-        h.get_events()
+def test_wait_for_keypress_returns_key_and_rt():
+    screen = FakeScreen()
+    handler = ResponseHandler(keys_to_listen=["left", "right"], screen=screen)
 
-    class FakeScreen:
-        backend = "glfw"
+    def flip():
+        screen.flip_count += 1
+        if screen.flip_count >= 3:
+            screen._glfw.down_keys = {FakeGlfw.KEY_LEFT}
 
-        def __init__(self):
-            self.pressed = {"space"}
-            self.down = {"space"}
+    screen.flip = flip
+    key, rt = handler.wait_for_keypress(keys=["left", "right"])
 
-        def should_close(self):
-            return False
+    assert key == "left"
+    assert rt >= 0
+    assert screen.flip_count == 3
 
-        def was_key_pressed(self, key):
-            return key in self.pressed
 
-        def is_key_down(self, key):
-            return key in self.down
+def test_wait_for_keypress_timeout():
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
 
-    s = FakeScreen()
-    h = ResponseHandler(screen=s, keys_to_listen=["space"])
-    h.get_events()
-    assert h.was_key_pressed("space")
-    s.pressed = set()
-    s.down = set()
-    h.get_events()
-    assert "space" in h.key_up_events
+    key, rt = handler.wait_for_keypress(keys=["space"], timeout=0.0)
+
+    assert key is None
+    assert rt >= 0
+
+
+def test_clear_events_preserves_held_state_snapshots():
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
+    screen._glfw.down_keys = {FakeGlfw.KEY_SPACE}
+    handler.get_events()
+
+    handler.clear_events()
+
+    assert handler.get_key_presses() == []
+    assert handler.was_key_pressed("space") is False
+    assert handler.is_key_down("space") is True

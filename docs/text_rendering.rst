@@ -20,7 +20,7 @@ OpenGL text renderers
   font-file path.
 
 The OpenGL renderers are backend-independent and do not require
-``pygame.font``.
+Pillow.
 
 Recommended usage
 -----------------
@@ -28,5 +28,5 @@ Recommended usage
 - Use ``Text`` for high-quality instruction screens and overlays.
 - Use ``GLSystemText`` only when you want the explicit historical class name.
 - Use ``GLTextSDF`` when scalable text quality matters and shaping is simple.
-- The old Pillow/pygame texture-backed constructor is backbenched as
+- The old Pillow texture-backed constructor is backbenched as
   ``tachypy.text.LegacyText`` for compatibility.

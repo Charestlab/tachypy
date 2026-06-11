@@ -63,8 +63,8 @@ pip install tachypy
 ```
 
 The base install includes GLFW for display/input, PyOpenGL, Pillow text
-support, and pyserial for serial/trigger workflows. Pygame is no longer a base
-dependency.
+support, and pyserial for serial/trigger workflows. Pygame support has been
+removed; GLFW is the supported display/input backend.
 
 Editable install for development:
 
@@ -78,7 +78,6 @@ Optional extras:
 
 ```bash
 pip install -e ".[test]"        # pytest
-pip install -e ".[pygame]"      # legacy pygame compatibility backend
 pip install -e ".[text]"        # Pillow text fallback
 pip install -e ".[audio_sd]"    # sounddevice backend
 ```
@@ -178,11 +177,10 @@ TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
 - `Screen(...)` also presents 60 neutral warmup frames by default before
   experiment timing begins; set `warmup_frames=0` to disable or choose another
   count for a specific display.
-- `Screen(backend="pygame")`: legacy SDL/Pygame-managed compatibility backend. Install with `tachypy[pygame]`.
-- For robust key/mouse behavior across backends, initialize
-  `ResponseHandler(screen=screen)` so it can route event polling correctly.
-- `DraggableManager` now works on both backends when events are read through
-  `ResponseHandler(screen=screen)`.
+- Initialize `ResponseHandler(screen=screen)` for input. It calls
+  `screen.poll_events()` and owns keyboard/mouse state; `Screen` does not track
+  participant responses directly.
+- `DraggableManager` reads mouse transitions through `ResponseHandler(screen=screen)`.
 
 ## Text Rendering Notes
 
@@ -193,7 +191,6 @@ TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
   (e.g. `"Avenir Next, Helvetica, Arial"`), or direct font file path.
 - For production instruction text, prefer `Text` with `.[system_text]`.
 - The old texture-backed constructor is backbenched as `tachypy.text.LegacyText`.
-- The legacy pygame text path requires `tachypy[pygame]`.
 
 ## API Naming
 

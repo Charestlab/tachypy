@@ -4,12 +4,10 @@ Backends
 Display backends
 ----------------
 
-``Screen`` supports:
+``Screen`` supports GLFW only. Pygame support has been removed from the
+timing-focused display/input path.
 
-- ``backend="glfw"`` (default)
-- ``backend="pygame"`` legacy compatibility backend, installed via ``tachypy[pygame]``
-
-Use GLFW for the primary timing-focused event/display path:
+Use GLFW for display creation and OpenGL context management:
 
 .. code-block:: python
 
@@ -41,15 +39,16 @@ the active display backend:
 
    responses = ResponseHandler(screen=screen)
 
-This is required for GLFW because key and mouse state are tracked by
-``Screen``. It also keeps legacy pygame experiments on the correct event path.
+This is required because ``ResponseHandler`` calls ``screen.poll_events()`` and
+owns all key/mouse state snapshots. ``Screen`` does not track participant
+responses directly.
 
 Draggable compatibility
 -----------------------
 
-``DraggableManager`` works with the GLFW path when fed events from
-``ResponseHandler``. The legacy pygame path remains available for existing
-experiments that explicitly install ``tachypy[pygame]``.
+``DraggableManager`` reads mouse transitions from ``ResponseHandler``. Call
+``responses.get_events()`` once per frame, then pass the handler to
+``manager.update_from_response(responses)``.
 
 Coordinate convention
 ---------------------

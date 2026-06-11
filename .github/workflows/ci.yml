@@ -2,14 +2,24 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - main
+      - "dev_*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +40,7 @@ jobs:
   docs:
     name: docs
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,6 +62,7 @@ jobs:
   tests:
     name: tests (${{ matrix.os }}, ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +85,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
+          python -m pip check
+
+      - name: Import smoke test
+        run: python -c "import tachypy; from tachypy import ResponseHandler; print(ResponseHandler)"
 
       - name: Run tests with coverage
         run: pytest --cov=tachypy --cov-report=term-missing --cov-fail-under=80

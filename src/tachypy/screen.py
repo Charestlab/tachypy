@@ -1,8 +1,8 @@
 """Display and timing utilities for TachyPy with pluggable backends."""
 
-import os
+import warnings
 from time import monotonic_ns, sleep
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 from OpenGL.GL import (
@@ -28,9 +28,8 @@ from OpenGL.GL import (
 from OpenGL.GLU import gluOrtho2D
 from screeninfo import get_monitors
 
-
 class Screen:
-    """Create and manage a display backed by Pygame or GLFW."""
+    """Create and manage a GLFW/OpenGL display."""
 
     def __init__(
         self,
@@ -47,8 +46,8 @@ class Screen:
     ):
         """Initialize display window, OpenGL context, and timing state."""
         self.backend = backend.strip().lower()
-        if self.backend not in {"pygame", "glfw"}:
-            raise ValueError("backend must be 'pygame' or 'glfw'")
+        if self.backend != "glfw":
+            raise ValueError("Pygame support has been removed; backend must be 'glfw'.")
         if int(warmup_frames) < 0:
             raise ValueError("warmup_frames must be >= 0")
 
@@ -70,27 +69,25 @@ class Screen:
 
         self.monitor = None
         self.screen = None
-        self.clock = None
-        self._pygame = None
         self._glfw = None
         self._glfw_window = None
-        self._glfw_prev_key_state: Dict[int, bool] = {}
-        self._glfw_curr_key_state: Dict[int, bool] = {}
-        self._glfw_keys_to_track = set()
-        self._glfw_prev_mouse_state: Dict[int, bool] = {}
-        self._glfw_curr_mouse_state: Dict[int, bool] = {}
-        self._glfw_mouse_position: Optional[Tuple[float, float]] = None
 
-        if self.backend == "pygame":
-            self._init_pygame_backend(screen_number)
-        else:
-            self._init_glfw_backend(screen_number)
-
+        self._init_glfw_backend(screen_number)
         self._init_opengl_state()
         self._warm_up_display()
 
-        if self.backend == "pygame":
-            self._pygame.event.get()
+    @staticmethod
+    def _clamp_screen_number(screen_number: int, n_monitors: int) -> int:
+        """Return a valid monitor index, warning if the requested one is out of range."""
+        safe = max(0, int(screen_number))
+        if safe >= n_monitors:
+            warnings.warn(
+                f"screen_number={screen_number} exceeds available monitors ({n_monitors}); using 0.",
+                UserWarning,
+                stacklevel=4,  # _clamp_screen_number → _init_*_backend → __init__ → caller
+            )
+            return 0
+        return safe
 
     @staticmethod
     def _normalize_rgb_color(color: Sequence[float]) -> Tuple[float, float, float]:
@@ -108,38 +105,6 @@ class Screen:
         if remaining_ns > 5_000_000:
             return 0.001
         return None
-
-    def _init_pygame_backend(self, screen_number: int) -> None:
-        """Create a pygame window/context on the requested monitor."""
-        monitors = get_monitors()
-        if not monitors:
-            raise RuntimeError("No monitors detected.")
-
-        safe_screen_number = max(0, int(screen_number))
-        if safe_screen_number >= len(monitors):
-            safe_screen_number = 0
-
-        monitor = monitors[safe_screen_number]
-        self.monitor = monitor
-
-        if self.width is None:
-            self.width = int(monitor.width)
-        if self.height is None:
-            self.height = int(monitor.height)
-
-        os.environ["SDL_VIDEO_WINDOW_POS"] = f"{monitor.x},{monitor.y}"
-
-        import pygame
-        from pygame.locals import DOUBLEBUF, FULLSCREEN, OPENGL
-
-        self._pygame = pygame
-        pygame.init()
-        flags = DOUBLEBUF | OPENGL
-        if self.fullscreen:
-            flags |= FULLSCREEN
-        self.screen = pygame.display.set_mode((self.width, self.height), flags, vsync=self.vsync)
-        self.clock = pygame.time.Clock()
-        pygame.event.set_grab(self.grab_input)
 
     def _init_glfw_backend(self, screen_number: int) -> None:
         """Create a GLFW window/context on the requested monitor."""
@@ -160,10 +125,7 @@ class Screen:
             glfw.terminate()
             raise RuntimeError("No monitors detected by GLFW.")
 
-        safe_screen_number = max(0, int(screen_number))
-        if safe_screen_number >= len(monitors):
-            safe_screen_number = 0
-
+        safe_screen_number = Screen._clamp_screen_number(screen_number, len(monitors))
         monitor = monitors[safe_screen_number]
         self.monitor = monitor
 
@@ -203,13 +165,9 @@ class Screen:
 
     def _init_opengl_state(self) -> None:
         """Configure 2D projection and default OpenGL state."""
-        if self.backend == "glfw":
-            fb_w, fb_h = self._glfw.get_framebuffer_size(self._glfw_window)
-            viewport_w = int(fb_w) if fb_w > 0 else int(self.width)
-            viewport_h = int(fb_h) if fb_h > 0 else int(self.height)
-        else:
-            viewport_w = int(self.width)
-            viewport_h = int(self.height)
+        fb_w, fb_h = self._glfw.get_framebuffer_size(self._glfw_window)
+        viewport_w = int(fb_w) if fb_w > 0 else int(self.width)
+        viewport_h = int(fb_h) if fb_h > 0 else int(self.height)
 
         glViewport(0, 0, viewport_w, viewport_h)
         glMatrixMode(GL_PROJECTION)
@@ -253,16 +211,9 @@ class Screen:
         self.prev_flip_submit_time = self.last_flip_submit_time
         submit_time = monotonic_ns()
 
-        if self.backend == "pygame":
-            self._pygame.display.flip()
-            this_time = monotonic_ns()
-        else:
-            self._glfw.swap_buffers(self._glfw_window)
-            this_time = monotonic_ns()
-            self._glfw.poll_events()
-            self._sync_glfw_viewport_and_projection()
-            self._update_glfw_key_state()
-            self._update_glfw_mouse_state()
+        self._glfw.swap_buffers(self._glfw_window)
+        this_time = monotonic_ns()
+        self._sync_glfw_viewport_and_projection()
 
         self.last_flip_submit_time = submit_time
         self.last_flip_time = this_time
@@ -286,10 +237,6 @@ class Screen:
 
     def tick(self) -> None:
         """Limit frame updates to the desired refresh rate."""
-        if self.backend == "pygame":
-            self.clock.tick(self.desired_refresh_rate)
-            return
-
         if self.desired_refresh_rate <= 0 or self.vsync:
             return
 
@@ -327,18 +274,12 @@ class Screen:
 
     def hide_mouse(self) -> None:
         """Hide cursor in the active backend window."""
-        if self.backend == "pygame":
-            self._pygame.mouse.set_visible(False)
-        else:
-            self._glfw.set_input_mode(self._glfw_window, self._glfw.CURSOR, self._glfw.CURSOR_HIDDEN)
+        self._glfw.set_input_mode(self._glfw_window, self._glfw.CURSOR, self._glfw.CURSOR_HIDDEN)
         self.mouse_visible = False
 
     def show_mouse(self) -> None:
         """Show cursor in the active backend window."""
-        if self.backend == "pygame":
-            self._pygame.mouse.set_visible(True)
-        else:
-            self._glfw.set_input_mode(self._glfw_window, self._glfw.CURSOR, self._glfw.CURSOR_NORMAL)
+        self._glfw.set_input_mode(self._glfw_window, self._glfw.CURSOR, self._glfw.CURSOR_NORMAL)
         self.mouse_visible = True
 
     def set_mouse_visible(self, visible: bool) -> None:
@@ -366,19 +307,13 @@ class Screen:
     def close(self) -> None:
         """Close the display backend."""
         self.show_mouse()
-        if self.backend == "pygame":
-            self._pygame.quit()
-        else:
-            if self._glfw_window is not None:
-                self._glfw.destroy_window(self._glfw_window)
-                self._glfw_window = None
-            self._glfw.terminate()
+        if self._glfw_window is not None:
+            self._glfw.destroy_window(self._glfw_window)
+            self._glfw_window = None
+        self._glfw.terminate()
 
     def _sync_glfw_viewport_and_projection(self, force: bool = False) -> None:
         """Sync logical projection and framebuffer viewport for GLFW HiDPI."""
-        if self.backend != "glfw":
-            return
-
         win_w, win_h = self._glfw.get_window_size(self._glfw_window)
         fb_w, fb_h = self._glfw.get_framebuffer_size(self._glfw_window)
         if win_w <= 0 or win_h <= 0 or fb_w <= 0 or fb_h <= 0:
@@ -393,161 +328,20 @@ class Screen:
         glViewport(0, 0, int(fb_w), int(fb_h))
 
         if logical_changed:
-            # Keep the same top-left origin convention as pygame backend.
+            # Use TachyPy's top-left logical origin convention.
             glMatrixMode(GL_PROJECTION)
             glLoadIdentity()
             gluOrtho2D(0, self.width, self.height, 0)
             glMatrixMode(GL_MODELVIEW)
             glLoadIdentity()
 
-    def _update_glfw_key_state(self) -> None:
-        """Update tracked GLFW key down/up state snapshot."""
-        default_keys = [
-            self._glfw.KEY_SPACE,
-            self._glfw.KEY_ENTER,
-            self._glfw.KEY_KP_ENTER,
-            self._glfw.KEY_ESCAPE,
-            self._glfw.KEY_A,
-        ]
-        keys_to_track = sorted(set(default_keys) | self._glfw_keys_to_track)
-        self._glfw_prev_key_state = dict(self._glfw_curr_key_state)
-        self._glfw_curr_key_state = {}
-        for key in keys_to_track:
-            state = self._glfw.get_key(self._glfw_window, key) == self._glfw.PRESS
-            self._glfw_curr_key_state[key] = bool(state)
-
-    def track_keys(self, keys) -> None:
-        """Register additional GLFW keys for per-frame transition tracking."""
-        if self.backend != "glfw":
-            return
-        for key in keys:
-            code = self._glfw_keycode(key)
-            if code is not None:
-                self._glfw_keys_to_track.add(code)
-
-    def _update_glfw_mouse_state(self) -> None:
-        """Update tracked GLFW mouse button transitions and cursor position."""
-        buttons_to_track = [
-            self._glfw.MOUSE_BUTTON_LEFT,
-            self._glfw.MOUSE_BUTTON_MIDDLE,
-            self._glfw.MOUSE_BUTTON_RIGHT,
-        ]
-        self._glfw_prev_mouse_state = dict(self._glfw_curr_mouse_state)
-        self._glfw_curr_mouse_state = {}
-        for button in buttons_to_track:
-            state = self._glfw.get_mouse_button(self._glfw_window, button) == self._glfw.PRESS
-            self._glfw_curr_mouse_state[button] = bool(state)
-
-        cursor_x, cursor_y = self._glfw.get_cursor_pos(self._glfw_window)
-        self._glfw_mouse_position = (float(cursor_x), float(cursor_y))
-
-    def _glfw_keycode(self, key) -> Optional[int]:
-        """Map a key name or keycode to GLFW keycode."""
-        if isinstance(key, int):
-            return key
-        key_name = str(key).strip().lower()
-        mapping = {
-            "space": self._glfw.KEY_SPACE,
-            "return": self._glfw.KEY_ENTER,
-            "enter": self._glfw.KEY_ENTER,
-            "kp_enter": self._glfw.KEY_KP_ENTER,
-            "escape": self._glfw.KEY_ESCAPE,
-            "esc": self._glfw.KEY_ESCAPE,
-            "a": self._glfw.KEY_A,
-        }
-        if key_name in mapping:
-            return mapping[key_name]
-        if len(key_name) == 1 and key_name.isalpha():
-            return getattr(self._glfw, f"KEY_{key_name.upper()}", None)
-        if len(key_name) == 1 and key_name.isdigit():
-            return getattr(self._glfw, f"KEY_{key_name}", None)
-        return None
-
-    def is_key_down(self, key) -> bool:
-        """Return True when key is currently held (GLFW backend only)."""
-        if self.backend == "glfw":
-            code = self._glfw_keycode(key)
-            if code is None:
-                return False
-            return bool(self._glfw_curr_key_state.get(code, False))
-        return False
-
-    def was_key_pressed(self, key) -> bool:
-        """Return True when key transitioned to down this frame (GLFW only)."""
-        if self.backend == "glfw":
-            code = self._glfw_keycode(key)
-            if code is None:
-                return False
-            was_down = self._glfw_prev_key_state.get(code, False)
-            is_down = self._glfw_curr_key_state.get(code, False)
-            return bool(is_down and not was_down)
-        return False
+    def poll_events(self) -> None:
+        """Pump pending GLFW window events without interpreting participant input."""
+        self._glfw.poll_events()
 
     def should_close(self) -> bool:
-        """Return close status for GLFW windows; always False for pygame."""
-        if self.backend == "pygame":
-            return False
+        """Return whether the GLFW window has received a close request."""
         return bool(self._glfw.window_should_close(self._glfw_window))
-
-    def get_mouse_position(self) -> Optional[Tuple[float, float]]:
-        """Return current mouse position for GLFW backend, otherwise None."""
-        if self.backend != "glfw":
-            return None
-        return self._glfw_mouse_position
-
-    def is_mouse_button_pressed(self, button_index: int) -> bool:
-        """Return True when the mouse button is currently pressed (GLFW only)."""
-        if self.backend != "glfw":
-            return False
-        mapping = {
-            0: self._glfw.MOUSE_BUTTON_LEFT,
-            1: self._glfw.MOUSE_BUTTON_MIDDLE,
-            2: self._glfw.MOUSE_BUTTON_RIGHT,
-        }
-        button = mapping.get(int(button_index))
-        if button is None:
-            return False
-        return bool(self._glfw_curr_mouse_state.get(button, False))
-
-    def was_mouse_button_pressed(self, button_index: int) -> bool:
-        """Return True when the mouse button transitioned to down this frame."""
-        if self.backend != "glfw":
-            return False
-        mapping = {
-            0: self._glfw.MOUSE_BUTTON_LEFT,
-            1: self._glfw.MOUSE_BUTTON_MIDDLE,
-            2: self._glfw.MOUSE_BUTTON_RIGHT,
-        }
-        button = mapping.get(int(button_index))
-        if button is None:
-            return False
-        was_down = self._glfw_prev_mouse_state.get(button, False)
-        is_down = self._glfw_curr_mouse_state.get(button, False)
-        return bool(is_down and not was_down)
-
-    def was_mouse_button_released(self, button_index: int) -> bool:
-        """Return True when the mouse button transitioned to up this frame."""
-        if self.backend != "glfw":
-            return False
-        mapping = {
-            0: self._glfw.MOUSE_BUTTON_LEFT,
-            1: self._glfw.MOUSE_BUTTON_MIDDLE,
-            2: self._glfw.MOUSE_BUTTON_RIGHT,
-        }
-        button = mapping.get(int(button_index))
-        if button is None:
-            return False
-        was_down = self._glfw_prev_mouse_state.get(button, False)
-        is_down = self._glfw_curr_mouse_state.get(button, False)
-        return bool(was_down and not is_down)
-
-    def set_mouse_position(self, x: float, y: float) -> None:
-        """Set cursor position for active backend window."""
-        if self.backend == "pygame":
-            self._pygame.mouse.set_pos((x, y))
-            return
-        self._glfw.set_cursor_pos(self._glfw_window, float(x), float(y))
-        self._glfw_mouse_position = (float(x), float(y))
 
     def __enter__(self):
         """Enter context manager and return this Screen instance."""
