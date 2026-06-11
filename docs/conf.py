@@ -16,7 +16,6 @@ extensions = [
 ]
 autosummary_generate = True
 autodoc_mock_imports = [
-    "pygame",
     "OpenGL",
     "glfw",
     "sounddevice",

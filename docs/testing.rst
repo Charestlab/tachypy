@@ -11,7 +11,7 @@ What is covered
 - Audio backend selection and CI-safe dummy mode behavior.
 - Response handling state transitions (key press/release behavior).
 - Draggable object movement and boundary clamping.
-- Cross-backend drag/input behavior (pygame and GLFW).
+- GLFW drag/input behavior.
 - Psychophysics helper invariants (shape/range and edge cases).
 - Text object line processing edge cases.
 
@@ -40,6 +40,6 @@ Add new tests
 -------------
 
 - Prefer pure logic tests over rendering integration tests where possible.
-- Mock Pygame/OpenGL interactions when asserting non-rendering behavior.
+- Mock GLFW/OpenGL interactions when asserting non-rendering behavior.
 - Add regression tests for every bug fix before release.
 - Use ``TACHYPY_AUDIO_BACKEND=dummy`` in CI and keep hardware tests separate.

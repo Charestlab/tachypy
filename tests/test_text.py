@@ -1,90 +1,90 @@
-from types import SimpleNamespace
-
 import tachypy.text as text_module
 from tachypy.text import LegacyText
 
 
-class FakeSurface:
-    def __init__(self, size):
-        self._size = size
+class FakeImage:
+    FLIP_TOP_BOTTOM = "flip"
 
-    def get_width(self):
-        return self._size[0]
+    def __init__(self, size=(1, 1)):
+        self.size = size
 
-    def get_height(self):
-        return self._size[1]
+    @classmethod
+    def new(cls, mode, size, color):
+        return cls(size)
 
-    def get_size(self):
-        return self._size
+    def transpose(self, mode):
+        return self
 
-    def fill(self, color):
-        return None
+    def tobytes(self, *args):
+        return b"fake"
 
-    def blit(self, surface, position):
-        return None
+
+class FakeDrawer:
+    def __init__(self, image):
+        pass
+
+    def textbbox(self, pos, value, font=None):
+        return (0, 0, max(1, len(value)) * 8, 16)
+
+    def text(self, pos, value, fill=None, font=None):
+        pass
+
+
+class FakeImageDraw:
+    Draw = FakeDrawer
 
 
 class FakeFont:
-    def size(self, value):
-        # Deterministic width heuristic for wrapping tests.
-        return (max(1, len(value)) * 8, 16)
-
-    def render(self, value, antialias, color):
-        width = max(1, len(value)) * 8
-        return FakeSurface((width, 16))
+    pass
 
 
-class FakeFontModule:
-    def init(self):
-        return None
+class FakeImageFont:
+    @staticmethod
+    def truetype(name, size):
+        return FakeFont()
 
-    def SysFont(self, name, size):
+    @staticmethod
+    def load_default():
         return FakeFont()
 
 
-def patch_gl_and_pygame(monkeypatch):
+def patch_gl_and_pillow(monkeypatch):
     monkeypatch.setattr(text_module, "glDeleteTextures", lambda *args, **kwargs: None)
     monkeypatch.setattr(text_module, "glBindTexture", lambda *args, **kwargs: None)
     monkeypatch.setattr(text_module, "glTexImage2D", lambda *args, **kwargs: None)
     monkeypatch.setattr(text_module, "glTexParameterf", lambda *args, **kwargs: None)
-    monkeypatch.setattr(text_module, "glTexParameteri", lambda *args, **kwargs: None)
     monkeypatch.setattr(text_module, "glGenTextures", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(text_module.LegacyText, "_init_text_backend", fake_init_text_backend)
 
-    fake_pygame = SimpleNamespace(
-        font=FakeFontModule(),
-        SRCALPHA=1,
-        Surface=lambda size, flags=None: FakeSurface(size),
-        image=SimpleNamespace(tostring=lambda *args, **kwargs: b"fake"),
-    )
-    monkeypatch.setattr(text_module, "pygame", fake_pygame)
+
+def fake_init_text_backend(self):
+    self._pil_image = FakeImage
+    self._pil_draw = FakeImageDraw
+    self._pil_imagefont = FakeImageFont
+    self._font_obj = FakeFont()
 
 
 def test_legacy_text_can_initialize_without_dest_rect(monkeypatch):
-    patch_gl_and_pygame(monkeypatch)
+    patch_gl_and_pillow(monkeypatch)
 
-    text = LegacyText(text="Hello TachyPy", dest_rect=None, backend="pygame")
+    text = LegacyText(text="Hello TachyPy", dest_rect=None, backend="pillow")
 
     assert text.lines == ["Hello TachyPy"]
 
 
 def test_legacy_text_handles_empty_content(monkeypatch):
-    patch_gl_and_pygame(monkeypatch)
+    patch_gl_and_pillow(monkeypatch)
 
-    text = LegacyText(text="", dest_rect=[0, 0, 120, 80], backend="pygame")
+    text = LegacyText(text="", dest_rect=[0, 0, 120, 80], backend="pillow")
     text.set_text("")
 
     assert len(text.lines) >= 1
 
 
-def test_textbox_clear_refreshes_texture(monkeypatch):
-    patch_gl_and_pygame(monkeypatch)
-
-    box = text_module.TextBox(position=(0, 0), size=(200, 40), font=FakeFont())
-    box.text = "abc"
-    box.cursor_position = 2
-    box.submitted = True
-    box.clear()
-
-    assert box.text == ""
-    assert box.cursor_position == 0
-    assert box.submitted is False
+def test_legacy_text_rejects_pygame_backend():
+    try:
+        LegacyText(text="x", backend="pygame")
+    except ValueError as exc:
+        assert "pillow" in str(exc)
+    else:
+        raise AssertionError("pygame backend should be rejected")

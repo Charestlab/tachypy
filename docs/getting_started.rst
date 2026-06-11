@@ -9,8 +9,8 @@ Install TachyPy
    pip install tachypy
 
 The base install includes GLFW for display/input, PyOpenGL, Pillow text
-support, and pyserial for serial trigger workflows. Pygame is no longer a base
-dependency.
+support, and pyserial for serial trigger workflows. Pygame support has been
+removed; GLFW is the supported display/input backend.
 
 For development:
 
@@ -26,7 +26,6 @@ Optional extras
 .. code-block:: bash
 
    pip install -e ".[test]"        # pytest, coverage, lint tooling
-   pip install -e ".[pygame]"      # legacy pygame compatibility backend
    pip install -e ".[text]"        # Pillow text fallback
    pip install -e ".[audio_sd]"    # sounddevice backend
 
