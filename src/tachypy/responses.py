@@ -1,5 +1,6 @@
 # responses.py
 import time
+import warnings
 from types import SimpleNamespace
 
 try:
@@ -37,10 +38,13 @@ class ResponseHandler:
 
         self.keys_to_listen = keys_to_listen
         self.events = []
-        self._default_glfw_keys = ["space", "enter", "kp_enter", "escape", "a"]
+        _default_keys = ["space", "enter", "kp_enter", "escape", "a", "left", "right", "up", "down"]
+        initial = keys_to_listen if keys_to_listen is not None else _default_keys
+        self._glfw_probed_keys: set = {
+            self._normalize_key_name(k) if isinstance(k, str) else k for k in initial
+        }
         if self.backend == "glfw" and self.screen is not None and hasattr(self.screen, "track_keys"):
-            keys_to_track = self.keys_to_listen if self.keys_to_listen is not None else self._default_glfw_keys
-            self.screen.track_keys(keys_to_track)
+            self.screen.track_keys(self._glfw_probed_keys)
 
     @staticmethod
     def _normalize_key_name(key_name):
@@ -159,11 +163,8 @@ class ResponseHandler:
         if self.screen.should_close() or self.screen.was_key_pressed("escape"):
             self.should_exit = True
 
-        keys_to_probe = self.keys_to_listen if self.keys_to_listen is not None else self._default_glfw_keys
-        for key in keys_to_probe:
-            key_name = self._normalize_key_name(key)
-
-            if self.screen.was_key_pressed(key):
+        for key_name in self._glfw_probed_keys:
+            if self.screen.was_key_pressed(key_name):
                 self.key_presses.append({
                     'time': timestamp,
                     'type': 'keydown',
@@ -172,7 +173,7 @@ class ResponseHandler:
                 self.key_down_events.add(key_name)
                 self.held_keys.add(key_name)
 
-            is_down = self.screen.is_key_down(key)
+            is_down = self.screen.is_key_down(key_name)
             if is_down:
                 self.held_keys.add(key_name)
             elif key_name in self.held_keys:
@@ -238,17 +239,42 @@ class ResponseHandler:
         """Return recorded key transition events."""
         return self.key_presses
 
+    def _promote_glfw_key(self, normalized_key) -> None:
+        """Add a key to the probed set so it receives full tracking from the next frame."""
+        self._glfw_probed_keys.add(normalized_key)
+        if self.screen is not None and hasattr(self.screen, "track_keys"):
+            self.screen.track_keys([normalized_key])
+
     def is_key_down(self, key_name):
         """Return True when the given key is currently held."""
         if isinstance(key_name, int):
             return key_name in self.held_keycodes
-        return self._normalize_key_name(key_name) in self.held_keys
+        normalized = self._normalize_key_name(key_name)
+        if normalized in self.held_keys:
+            return True
+        if self.backend == "glfw" and self.screen is not None and normalized not in self._glfw_probed_keys:
+            self._promote_glfw_key(normalized)
+            result = bool(getattr(self.screen, "is_key_down", lambda k: False)(normalized))
+            if result:
+                self.held_keys.add(normalized)
+            return result
+        return False
 
     def was_key_pressed(self, key_name):
         """Return True when the given key transitioned to down this frame."""
         if isinstance(key_name, int):
             return key_name in self.key_down_keycodes
-        return self._normalize_key_name(key_name) in self.key_down_events
+        normalized = self._normalize_key_name(key_name)
+        if normalized in self.key_down_events:
+            return True
+        if self.backend == "glfw" and self.screen is not None and normalized not in self._glfw_probed_keys:
+            self._promote_glfw_key(normalized)
+            result = bool(getattr(self.screen, "was_key_pressed", lambda k: False)(normalized))
+            if result:
+                self.key_down_events.add(normalized)
+                self.held_keys.add(normalized)
+            return result
+        return False
 
     def get_mouse_position(self):
         """Return the latest mouse position or None if unavailable."""
@@ -275,6 +301,78 @@ class ResponseHandler:
             raise RuntimeError("pygame backend requested but pygame is not installed. Install `tachypy[pygame]`.")
         pygame.mouse.set_pos((x, y))
         self.mouse_position = (x, y)
+
+    def wait_for_keypress(self, keys=None, timeout=None, screen=None, time_reference_ns=None):
+        """Block until one of the listed keys is pressed, keeping the display alive.
+
+        Draws nothing — the caller is responsible for having already presented the
+        stimulus before calling this.  The screen is flipped each iteration to
+        satisfy the OS event loop and keep timing tight.
+
+        Parameters
+        ----------
+        keys : list of str | None
+            Key names to accept.  None means any key.
+        timeout : float | None
+            Maximum wait in seconds.  None means wait forever.
+        screen : Screen | None
+            Screen to flip each frame.  Defaults to ``self.screen``.
+        time_reference_ns : int | None
+            Nanosecond timestamp used as the RT origin (e.g. ``screen.last_flip_time``
+            to measure from stimulus onset).  Defaults to the time of the first flip
+            inside this call.
+
+        Returns
+        -------
+        (key_name, rt_seconds) : (str | None, float)
+            ``key_name`` is None on timeout or quit; ``rt_seconds`` is elapsed time
+            from ``time_reference_ns`` (or first flip) to the detected keypress.
+        """
+        if self.backend == "pygame" and keys is not None and self.keys_to_listen is not None:
+            listened = {
+                self._normalize_key_name(k) if isinstance(k, str) else k
+                for k in self.keys_to_listen
+            }
+            untracked = [k for k in keys if self._normalize_key_name(k) not in listened]
+            if untracked:
+                warnings.warn(
+                    f"wait_for_keypress: pygame backend tracks only keys passed to "
+                    f"ResponseHandler at construction. "
+                    f"These keys will never be detected: {untracked}. "
+                    f"Add them to keys_to_listen=[ ... ] when creating ResponseHandler.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        active_screen = screen if screen is not None else self.screen
+        self.clear_events()
+
+        ref_ns = None
+
+        while True:
+            if active_screen is not None:
+                active_screen.flip()
+
+            if ref_ns is None:
+                ref_ns = time_reference_ns if time_reference_ns is not None else time.monotonic_ns()
+
+            self.get_events()
+
+            elapsed = (time.monotonic_ns() - ref_ns) / 1e9
+
+            if self.should_quit():
+                return None, elapsed
+
+            if timeout is not None and elapsed >= timeout:
+                return None, elapsed
+
+            if keys is None:
+                if self.key_down_events:
+                    return next(iter(self.key_down_events)), elapsed
+            else:
+                for key in keys:
+                    if self.was_key_pressed(key):
+                        return self._normalize_key_name(key), elapsed
 
     def clear_events(self):
         """Clear tracked key/mouse states and pending framework events."""

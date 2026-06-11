@@ -160,6 +160,177 @@ def test_glfw_response_handler_registers_listened_keys(monkeypatch):
     assert handler.was_key_pressed("r") is True
 
 
+def test_wait_for_keypress_returns_key_and_rt(monkeypatch):
+    import tachypy.responses as responses_module
+
+    monkeypatch.setattr(responses_module, "pygame", None)
+
+    flip_count = [0]
+    press_on_flip = 3  # key becomes pressed after this many flips
+
+    class FakeScreen:
+        backend = "glfw"
+
+        def flip(self):
+            flip_count[0] += 1
+
+        def track_keys(self, keys):
+            pass
+
+        def should_close(self):
+            return False
+
+        def was_key_pressed(self, key):
+            return key == "left" and flip_count[0] >= press_on_flip
+
+        def is_key_down(self, key):
+            return key == "left" and flip_count[0] >= press_on_flip
+
+        def get_mouse_position(self):
+            return None
+
+        def is_mouse_button_pressed(self, b):
+            return False
+
+        def was_mouse_button_pressed(self, b):
+            return False
+
+        def was_mouse_button_released(self, b):
+            return False
+
+    screen = FakeScreen()
+    handler = ResponseHandler(keys_to_listen=["left", "right"], screen=screen)
+
+    key, rt = handler.wait_for_keypress(keys=["left", "right"])
+
+    assert key == "left"
+    assert rt >= 0
+    assert flip_count[0] == press_on_flip
+
+
+def test_wait_for_keypress_timeout(monkeypatch):
+    import tachypy.responses as responses_module
+
+    monkeypatch.setattr(responses_module, "pygame", None)
+
+    class FakeScreen:
+        backend = "glfw"
+
+        def flip(self):
+            pass
+
+        def track_keys(self, keys):
+            pass
+
+        def should_close(self):
+            return False
+
+        def was_key_pressed(self, key):
+            return False
+
+        def is_key_down(self, key):
+            return False
+
+        def get_mouse_position(self):
+            return None
+
+        def is_mouse_button_pressed(self, b):
+            return False
+
+        def was_mouse_button_pressed(self, b):
+            return False
+
+        def was_mouse_button_released(self, b):
+            return False
+
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
+
+    key, rt = handler.wait_for_keypress(keys=["space"], timeout=0.0)
+
+    assert key is None
+    assert rt >= 0
+
+
+def test_glfw_untracked_key_is_promoted_on_first_query(monkeypatch):
+    import tachypy.responses as responses_module
+
+    monkeypatch.setattr(responses_module, "pygame", None)
+
+    class FakeScreen:
+        backend = "glfw"
+
+        def __init__(self):
+            self.pressed = {"f1"}
+            self.down = {"f1"}
+            self.tracked = []
+
+        def track_keys(self, keys):
+            self.tracked.extend(keys)
+
+        def should_close(self):
+            return False
+
+        def was_key_pressed(self, key):
+            return key in self.pressed
+
+        def is_key_down(self, key):
+            return key in self.down
+
+    screen = FakeScreen()
+    handler = ResponseHandler(keys_to_listen=["space"], screen=screen)
+    handler.get_events()
+
+    # First query: "f1" not yet in probed set → promoted, screen queried directly
+    assert handler.was_key_pressed("f1") is True
+    assert handler.is_key_down("f1") is True
+    assert "f1" in handler._glfw_probed_keys
+    assert "f1" in screen.tracked
+
+    # Next frame: "f1" is now fully managed via _get_events_glfw
+    handler.get_events()
+    assert handler.was_key_pressed("f1") is True
+    assert handler.is_key_down("f1") is True
+
+    # Managed key not pressed → normal False
+    assert handler.was_key_pressed("space") is False
+
+
+def test_glfw_untracked_key_promoted_when_no_keys_to_listen(monkeypatch):
+    import tachypy.responses as responses_module
+
+    monkeypatch.setattr(responses_module, "pygame", None)
+
+    class FakeScreen:
+        backend = "glfw"
+
+        def __init__(self):
+            self.pressed = {"f2"}
+            self.down = {"f2"}
+            self.tracked = []
+
+        def track_keys(self, keys):
+            self.tracked.extend(keys)
+
+        def should_close(self):
+            return False
+
+        def was_key_pressed(self, key):
+            return key in self.pressed
+
+        def is_key_down(self, key):
+            return key in self.down
+
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
+    handler.get_events()
+
+    # "f2" not in defaults → promoted on first query, state synced immediately
+    assert handler.was_key_pressed("f2") is True
+    assert handler.is_key_down("f2") is True
+    assert "f2" in handler._glfw_probed_keys
+
+
 def test_draggable_draw_and_glfw_drag_without_pygame(monkeypatch):
     import tachypy.draggable as draggable_module
 

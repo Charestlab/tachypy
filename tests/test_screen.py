@@ -162,3 +162,73 @@ def test_glfw_track_keys_supports_generic_letter_names():
 
     assert screen.was_key_pressed("r") is True
     assert screen.is_key_down("r") is True
+
+
+def test_clamp_screen_number_warns_when_out_of_range():
+    with pytest.warns(UserWarning, match="screen_number=5"):
+        result = Screen._clamp_screen_number(5, 2)
+    assert result == 0
+
+
+def test_clamp_screen_number_no_warning_when_valid(recwarn):
+    result = Screen._clamp_screen_number(1, 3)
+    assert result == 1
+    assert len(recwarn) == 0
+
+
+def test_clamp_screen_number_negative_clamps_silently_to_zero(recwarn):
+    result = Screen._clamp_screen_number(-1, 2)
+    assert result == 0
+    assert len(recwarn) == 0
+
+
+def test_is_key_down_auto_registers_key_for_next_frame():
+    class FakeGlfw:
+        KEY_R = 82
+        PRESS = 1
+
+        @staticmethod
+        def get_key(window, key):
+            return FakeGlfw.PRESS if key == FakeGlfw.KEY_R else 0
+
+    screen = Screen.__new__(Screen)
+    screen.backend = "glfw"
+    screen._glfw = FakeGlfw()
+    screen._glfw_window = "window"
+    screen._glfw_prev_key_state = {}
+    screen._glfw_curr_key_state = {}
+    screen._glfw_keys_to_track = set()
+
+    # First call: key not yet in state → False, but registers it
+    assert screen.is_key_down("r") is False
+    assert FakeGlfw.KEY_R in screen._glfw_keys_to_track
+
+    # Next frame: key is now polled
+    screen._update_glfw_key_state()
+    assert screen.is_key_down("r") is True
+
+
+def test_was_key_pressed_auto_registers_key_for_next_frame():
+    class FakeGlfw:
+        KEY_R = 82
+        PRESS = 1
+
+        @staticmethod
+        def get_key(window, key):
+            return FakeGlfw.PRESS
+
+    screen = Screen.__new__(Screen)
+    screen.backend = "glfw"
+    screen._glfw = FakeGlfw()
+    screen._glfw_window = "window"
+    screen._glfw_prev_key_state = {}
+    screen._glfw_curr_key_state = {}
+    screen._glfw_keys_to_track = set()
+
+    # First call: key not yet tracked → False, but registers it
+    assert screen.was_key_pressed("r") is False
+    assert FakeGlfw.KEY_R in screen._glfw_keys_to_track
+
+    # Next frame: prev=False (missing), curr=True → pressed
+    screen._update_glfw_key_state()
+    assert screen.was_key_pressed("r") is True

@@ -1,6 +1,7 @@
 """Display and timing utilities for TachyPy with pluggable backends."""
 
 import os
+import warnings
 from time import monotonic_ns, sleep
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -27,6 +28,131 @@ from OpenGL.GL import (
 )
 from OpenGL.GLU import gluOrtho2D
 from screeninfo import get_monitors
+
+_GLFW_KEY_MAP: Dict[str, str] = {
+    "space":         "KEY_SPACE",
+    "apostrophe":    "KEY_APOSTROPHE",
+    "comma":         "KEY_COMMA",
+    "minus":         "KEY_MINUS",
+    "period":        "KEY_PERIOD",
+    "slash":         "KEY_SLASH",
+    "0":             "KEY_0",
+    "1":             "KEY_1",
+    "2":             "KEY_2",
+    "3":             "KEY_3",
+    "4":             "KEY_4",
+    "5":             "KEY_5",
+    "6":             "KEY_6",
+    "7":             "KEY_7",
+    "8":             "KEY_8",
+    "9":             "KEY_9",
+    "semicolon":     "KEY_SEMICOLON",
+    "equal":         "KEY_EQUAL",
+    "a":             "KEY_A",
+    "b":             "KEY_B",
+    "c":             "KEY_C",
+    "d":             "KEY_D",
+    "e":             "KEY_E",
+    "f":             "KEY_F",
+    "g":             "KEY_G",
+    "h":             "KEY_H",
+    "i":             "KEY_I",
+    "j":             "KEY_J",
+    "k":             "KEY_K",
+    "l":             "KEY_L",
+    "m":             "KEY_M",
+    "n":             "KEY_N",
+    "o":             "KEY_O",
+    "p":             "KEY_P",
+    "q":             "KEY_Q",
+    "r":             "KEY_R",
+    "s":             "KEY_S",
+    "t":             "KEY_T",
+    "u":             "KEY_U",
+    "v":             "KEY_V",
+    "w":             "KEY_W",
+    "x":             "KEY_X",
+    "y":             "KEY_Y",
+    "z":             "KEY_Z",
+    "left_bracket":  "KEY_LEFT_BRACKET",
+    "backslash":     "KEY_BACKSLASH",
+    "right_bracket": "KEY_RIGHT_BRACKET",
+    "grave_accent":  "KEY_GRAVE_ACCENT",
+    "world_1":       "KEY_WORLD_1",
+    "world_2":       "KEY_WORLD_2",
+    "escape":        "KEY_ESCAPE",
+    "esc":           "KEY_ESCAPE",
+    "enter":         "KEY_ENTER",
+    "return":        "KEY_ENTER",
+    "tab":           "KEY_TAB",
+    "backspace":     "KEY_BACKSPACE",
+    "insert":        "KEY_INSERT",
+    "delete":        "KEY_DELETE",
+    "right":         "KEY_RIGHT",
+    "left":          "KEY_LEFT",
+    "down":          "KEY_DOWN",
+    "up":            "KEY_UP",
+    "page_up":       "KEY_PAGE_UP",
+    "page_down":     "KEY_PAGE_DOWN",
+    "home":          "KEY_HOME",
+    "end":           "KEY_END",
+    "caps_lock":     "KEY_CAPS_LOCK",
+    "scroll_lock":   "KEY_SCROLL_LOCK",
+    "num_lock":      "KEY_NUM_LOCK",
+    "print_screen":  "KEY_PRINT_SCREEN",
+    "pause":         "KEY_PAUSE",
+    "f1":            "KEY_F1",
+    "f2":            "KEY_F2",
+    "f3":            "KEY_F3",
+    "f4":            "KEY_F4",
+    "f5":            "KEY_F5",
+    "f6":            "KEY_F6",
+    "f7":            "KEY_F7",
+    "f8":            "KEY_F8",
+    "f9":            "KEY_F9",
+    "f10":           "KEY_F10",
+    "f11":           "KEY_F11",
+    "f12":           "KEY_F12",
+    "f13":           "KEY_F13",
+    "f14":           "KEY_F14",
+    "f15":           "KEY_F15",
+    "f16":           "KEY_F16",
+    "f17":           "KEY_F17",
+    "f18":           "KEY_F18",
+    "f19":           "KEY_F19",
+    "f20":           "KEY_F20",
+    "f21":           "KEY_F21",
+    "f22":           "KEY_F22",
+    "f23":           "KEY_F23",
+    "f24":           "KEY_F24",
+    "f25":           "KEY_F25",
+    "kp_0":          "KEY_KP_0",
+    "kp_1":          "KEY_KP_1",
+    "kp_2":          "KEY_KP_2",
+    "kp_3":          "KEY_KP_3",
+    "kp_4":          "KEY_KP_4",
+    "kp_5":          "KEY_KP_5",
+    "kp_6":          "KEY_KP_6",
+    "kp_7":          "KEY_KP_7",
+    "kp_8":          "KEY_KP_8",
+    "kp_9":          "KEY_KP_9",
+    "kp_decimal":    "KEY_KP_DECIMAL",
+    "kp_divide":     "KEY_KP_DIVIDE",
+    "kp_multiply":   "KEY_KP_MULTIPLY",
+    "kp_subtract":   "KEY_KP_SUBTRACT",
+    "kp_add":        "KEY_KP_ADD",
+    "kp_enter":      "KEY_KP_ENTER",
+    "kp_equal":      "KEY_KP_EQUAL",
+    "left_shift":    "KEY_LEFT_SHIFT",
+    "left_ctrl":     "KEY_LEFT_CONTROL",
+    "left_alt":      "KEY_LEFT_ALT",
+    "left_super":    "KEY_LEFT_SUPER",
+    "right_shift":   "KEY_RIGHT_SHIFT",
+    "right_ctrl":    "KEY_RIGHT_CONTROL",
+    "right_alt":     "KEY_RIGHT_ALT",
+    "right_super":   "KEY_RIGHT_SUPER",
+    "menu":          "KEY_MENU",
+}
 
 
 class Screen:
@@ -93,6 +219,19 @@ class Screen:
             self._pygame.event.get()
 
     @staticmethod
+    def _clamp_screen_number(screen_number: int, n_monitors: int) -> int:
+        """Return a valid monitor index, warning if the requested one is out of range."""
+        safe = max(0, int(screen_number))
+        if safe >= n_monitors:
+            warnings.warn(
+                f"screen_number={screen_number} exceeds available monitors ({n_monitors}); using 0.",
+                UserWarning,
+                stacklevel=4,  # _clamp_screen_number → _init_*_backend → __init__ → caller
+            )
+            return 0
+        return safe
+
+    @staticmethod
     def _normalize_rgb_color(color: Sequence[float]) -> Tuple[float, float, float]:
         """Normalize an RGB color from [0, 255] into [0, 1]."""
         if len(color) != 3:
@@ -115,10 +254,7 @@ class Screen:
         if not monitors:
             raise RuntimeError("No monitors detected.")
 
-        safe_screen_number = max(0, int(screen_number))
-        if safe_screen_number >= len(monitors):
-            safe_screen_number = 0
-
+        safe_screen_number = Screen._clamp_screen_number(screen_number, len(monitors))
         monitor = monitors[safe_screen_number]
         self.monitor = monitor
 
@@ -155,15 +291,18 @@ class Screen:
             raise RuntimeError("Failed to initialize GLFW.")
 
         self._glfw = glfw
+        self._glfw_keys_to_track = {
+            glfw.KEY_SPACE,
+            glfw.KEY_ENTER,
+            glfw.KEY_KP_ENTER,
+            glfw.KEY_ESCAPE,
+        }
         monitors = glfw.get_monitors() or []
         if not monitors:
             glfw.terminate()
             raise RuntimeError("No monitors detected by GLFW.")
 
-        safe_screen_number = max(0, int(screen_number))
-        if safe_screen_number >= len(monitors):
-            safe_screen_number = 0
-
+        safe_screen_number = Screen._clamp_screen_number(screen_number, len(monitors))
         monitor = monitors[safe_screen_number]
         self.monitor = monitor
 
@@ -402,17 +541,8 @@ class Screen:
 
     def _update_glfw_key_state(self) -> None:
         """Update tracked GLFW key down/up state snapshot."""
-        default_keys = [
-            self._glfw.KEY_SPACE,
-            self._glfw.KEY_ENTER,
-            self._glfw.KEY_KP_ENTER,
-            self._glfw.KEY_ESCAPE,
-            self._glfw.KEY_A,
-        ]
-        keys_to_track = sorted(set(default_keys) | self._glfw_keys_to_track)
-        self._glfw_prev_key_state = dict(self._glfw_curr_key_state)
-        self._glfw_curr_key_state = {}
-        for key in keys_to_track:
+        self._glfw_prev_key_state, self._glfw_curr_key_state = self._glfw_curr_key_state, {}
+        for key in self._glfw_keys_to_track:
             state = self._glfw.get_key(self._glfw_window, key) == self._glfw.PRESS
             self._glfw_curr_key_state[key] = bool(state)
 
@@ -446,22 +576,10 @@ class Screen:
         if isinstance(key, int):
             return key
         key_name = str(key).strip().lower()
-        mapping = {
-            "space": self._glfw.KEY_SPACE,
-            "return": self._glfw.KEY_ENTER,
-            "enter": self._glfw.KEY_ENTER,
-            "kp_enter": self._glfw.KEY_KP_ENTER,
-            "escape": self._glfw.KEY_ESCAPE,
-            "esc": self._glfw.KEY_ESCAPE,
-            "a": self._glfw.KEY_A,
-        }
-        if key_name in mapping:
-            return mapping[key_name]
-        if len(key_name) == 1 and key_name.isalpha():
-            return getattr(self._glfw, f"KEY_{key_name.upper()}", None)
-        if len(key_name) == 1 and key_name.isdigit():
-            return getattr(self._glfw, f"KEY_{key_name}", None)
-        return None
+        attr = _GLFW_KEY_MAP.get(key_name)
+        if attr is None:
+            return None
+        return getattr(self._glfw, attr, None)
 
     def is_key_down(self, key) -> bool:
         """Return True when key is currently held (GLFW backend only)."""
@@ -469,6 +587,7 @@ class Screen:
             code = self._glfw_keycode(key)
             if code is None:
                 return False
+            self._glfw_keys_to_track.add(code)
             return bool(self._glfw_curr_key_state.get(code, False))
         return False
 
@@ -478,6 +597,7 @@ class Screen:
             code = self._glfw_keycode(key)
             if code is None:
                 return False
+            self._glfw_keys_to_track.add(code)
             was_down = self._glfw_prev_key_state.get(code, False)
             is_down = self._glfw_curr_key_state.get(code, False)
             return bool(is_down and not was_down)
