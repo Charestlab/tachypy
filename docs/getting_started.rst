@@ -9,8 +9,9 @@ Install TachyPy
    pip install tachypy
 
 The base install includes GLFW for display/input, PyOpenGL, Pillow text
-support, and pyserial for serial trigger workflows. Pygame support has been
-removed; GLFW is the supported display/input backend.
+support, pyserial for serial trigger workflows, and TachyAudio for audio
+playback. Pygame support has been removed; GLFW is the supported display/input
+backend. TachyAudio is currently published as a beta release; if your pip resolver refuses pre-releases, pass ``--pre`` (or install tachyaudio explicitly).
 
 For development:
 
@@ -27,7 +28,7 @@ Optional extras
 
    pip install -e ".[test]"        # pytest, coverage, lint tooling
    pip install -e ".[text]"        # Pillow text fallback
-   pip install -e ".[audio_sd]"    # sounddevice backend
+   # Audio support (tachyaudio) is included in the base install
 
 Minimal loop
 ------------

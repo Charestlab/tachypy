@@ -4,65 +4,76 @@ Audio
 Audio class
 -----------
 
-``Audio`` now uses a backend abstraction:
+``tachypy.Audio`` is now a convenience scheduler over ``tachyaudio``. TachyPy no
+longer owns sounddevice or dummy audio backends; low-level device handling,
+streaming, buffering, and latency statistics live in ``tachyaudio``.
 
-- ``sounddevice``: low-latency backend (recommended for timing-critical runs).
-- ``dummy``: no-op backend for CI/headless testing.
-- ``auto``: selects ``sounddevice`` when available, otherwise ``dummy``.
-
-Backend selection
------------------
-
-Select backend in code:
+Basic playback:
 
 .. code-block:: python
 
+   import numpy as np
    from tachypy import Audio
-   audio = Audio(sample_rate=44100, channels=1, backend="sounddevice")
 
-Or through environment:
+   audio = Audio(sample_rate=48000, channels=1)
+   tone = np.zeros(4800, dtype=np.float32)
+   audio.play(tone)
 
-.. code-block:: bash
+Scheduling
+----------
 
-   TACHYPY_AUDIO_BACKEND=dummy pytest
+``Audio.play(data, when=...)`` keeps the old TachyPy convenience API. ``when`` is
+an absolute monotonic time in seconds. Internally, TachyPy waits until that time
+and then writes the contiguous float32 frame buffer to ``tachyaudio.OutputStream``.
 
-CI guidance
------------
+.. code-block:: python
 
-Use the ``dummy`` backend in CI to avoid native audio-driver requirements.
-Keep hardware/audio integration tests in dedicated jobs or local validation
-passes.
+   import time
 
-Installing sounddevice prerequisites
-------------------------------------
+   audio = Audio(sample_rate=48000, channels=2, latency=0.01)
+   audio.play(stereo_buffer, when=time.monotonic() + 0.250)
 
-``sounddevice`` may require PortAudio system libraries.
+Configuration
+-------------
 
-Linux (Debian/Ubuntu):
+The following parameters are passed through to ``tachyaudio.OutputStream``:
 
-.. code-block:: bash
+- ``sample_rate``
+- ``channels``
+- ``block_size``
+- ``device_id``
+- ``latency``
+- ``timeout`` for write/drain operations
 
-   sudo apt update
-   sudo apt install libportaudio2 libportaudiocpp0 portaudio19-dev
+The retained ``backend`` argument accepts only ``None``, ``"auto"``, or
+``"tachyaudio"``. Legacy ``"sounddevice"`` and ``"dummy"`` values now raise a
+``ValueError``.
 
-macOS:
+Installation
+------------
 
-Install Homebrew (if needed):
-
-.. code-block:: bash
-
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-Then install PortAudio:
-
-.. code-block:: bash
-
-   brew install portaudio
-
-Windows:
-
-Pip wheels for ``sounddevice`` often work directly. If not, one workaround is:
+The base TachyPy install depends on ``tachyaudio>=0.2.0b1``. In most cases, pip
+can resolve this dependency without enabling global pre-release selection:
 
 .. code-block:: bash
 
-   choco install portaudio
+   pip install tachypy
+
+If your resolver does not accept the tachyaudio pre-release automatically, retry
+with:
+
+.. code-block:: bash
+
+   pip install --pre tachypy
+
+For direct development installs:
+
+.. code-block:: bash
+
+   pip install --pre -e .
+
+Testing
+-------
+
+Unit tests mock ``tachyaudio.OutputStream``. Hardware/audio-device validation
+should remain a dedicated local or lab-machine test, separate from CI.

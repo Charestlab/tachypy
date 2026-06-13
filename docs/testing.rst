@@ -8,7 +8,7 @@ What is covered
 ---------------
 
 - Audio scheduling and channel-shape validation.
-- Audio backend selection and CI-safe dummy mode behavior.
+- TachyAudio-backed scheduling and channel-shape validation.
 - Response handling state transitions (key press/release behavior).
 - Draggable object movement and boundary clamping.
 - GLFW drag/input behavior.
@@ -42,4 +42,4 @@ Add new tests
 - Prefer pure logic tests over rendering integration tests where possible.
 - Mock GLFW/OpenGL interactions when asserting non-rendering behavior.
 - Add regression tests for every bug fix before release.
-- Use ``TACHYPY_AUDIO_BACKEND=dummy`` in CI and keep hardware tests separate.
+- Mock ``tachyaudio.OutputStream`` in CI and keep hardware audio tests separate.

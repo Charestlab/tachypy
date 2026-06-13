@@ -6,3 +6,4 @@ PyOpenGL>=3.1.0
 screeninfo>=0.6.0
 freetype-py>=2.4
 uharfbuzz>=0.39
+tachyaudio>=0.2.0b1
