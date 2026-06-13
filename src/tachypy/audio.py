@@ -86,7 +86,9 @@ class Audio:
         current_time = time.monotonic_ns()
         delay = int((float(when) * 1e9) - current_time)
         if delay < 0:
-            print("Warning: 'when' time is in the past. Playing immediately.")
+            import warnings
+
+            warnings.warn("'when' time is in the past; playing immediately.", RuntimeWarning, stacklevel=2)
             delay = 0
 
         thread = threading.Thread(target=self._playback_thread, args=(buffer, delay), daemon=True)
