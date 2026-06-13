@@ -88,6 +88,26 @@ def test_audio_playback_thread_delay_and_drain_timeout(monkeypatch):
     assert FakeOutputStream.calls[-1] == ("close",)
 
 
+def test_playback_thread_does_not_clear_replaced_stream(monkeypatch):
+    FakeOutputStream.calls = []
+    replacement = object()
+
+    class ReplacingOutputStream(FakeOutputStream):
+        def close(self):
+            audio._stream = replacement
+            audio.is_playing = True
+            super().close()
+
+    fake = type("FakeTachyAudio", (), {"OutputStream": ReplacingOutputStream})
+    monkeypatch.setattr(audio_module, "tachyaudio", fake)
+    audio = Audio()
+
+    audio._playback_thread(np.zeros(4, dtype=np.float32), delay=0)
+
+    assert audio._stream is replacement
+    assert audio.is_playing is True
+
+
 def test_stop_closes_active_stream(monkeypatch):
     install_fake_tachyaudio(monkeypatch)
     audio = Audio()

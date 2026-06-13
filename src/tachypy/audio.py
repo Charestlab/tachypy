@@ -140,7 +140,7 @@ class Audio:
                 with self._lock:
                     if self._stream is stream:
                         self._stream = None
-                    self.is_playing = False
+                        self.is_playing = False
 
     def _precise_delay(self, delay):
         """Wait for the specified nanosecond delay with high precision."""
