@@ -103,6 +103,36 @@ def test_stop_closes_active_stream(monkeypatch):
     assert audio.is_playing is False
 
 
+def test_stop_does_not_clear_replaced_stream(monkeypatch):
+    install_fake_tachyaudio(monkeypatch)
+    audio = Audio()
+    stream = FakeOutputStream(sample_rate=1, channels=1, block_size=None, device_id=None, latency=None, dtype="float32")
+    replacement = FakeOutputStream(
+        sample_rate=1,
+        channels=1,
+        block_size=None,
+        device_id=None,
+        latency=None,
+        dtype="float32",
+    )
+    audio._stream = stream
+    audio.is_playing = True
+
+    original_close = stream.close
+
+    def close_and_replace():
+        audio._stream = replacement
+        audio.is_playing = True
+        original_close()
+
+    stream.close = close_and_replace
+
+    audio.stop()
+
+    assert audio._stream is replacement
+    assert audio.is_playing is True
+
+
 def test_audio_constructor_validates_sample_rate_and_channels():
     with pytest.raises(ValueError, match="sample_rate"):
         Audio(sample_rate=0)

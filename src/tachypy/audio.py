@@ -171,8 +171,9 @@ class Audio:
             stream.stop()
             stream.close()
         with self._lock:
-            self._stream = None
-            self.is_playing = False
+            if self._stream is stream:
+                self._stream = None
+                self.is_playing = False
 
     def close(self):
         """Close audio resources by stopping playback."""
