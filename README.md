@@ -80,7 +80,7 @@ Optional extras:
 ```bash
 pip install -e ".[test]"        # pytest
 pip install -e ".[text]"        # Pillow text fallback
-pip install -e ".[audio]"       # TachyAudio audio dependency
+# Audio support (tachyaudio) is included in the base install
 ```
 
 ### Audio dependency
