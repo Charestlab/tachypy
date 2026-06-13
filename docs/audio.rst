@@ -52,9 +52,15 @@ The retained ``backend`` argument accepts only ``None``, ``"auto"``, or
 Installation
 ------------
 
-The base TachyPy install depends on ``tachyaudio>=0.2.0b1``. Because tachyaudio
-is currently published as a beta release, use pre-release resolution when
-installing TachyPy from source if pip cannot resolve it automatically:
+The base TachyPy install depends on ``tachyaudio>=0.2.0b1``. In most cases, pip
+can resolve this dependency without enabling global pre-release selection:
+
+.. code-block:: bash
+
+   pip install tachypy
+
+If your resolver does not accept the tachyaudio pre-release automatically, retry
+with:
 
 .. code-block:: bash
 
