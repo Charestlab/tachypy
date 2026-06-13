@@ -6,7 +6,7 @@ Install TachyPy
 
 .. code-block:: bash
 
-   pip install --pre tachypy
+   pip install tachypy
 
 The base install includes GLFW for display/input, PyOpenGL, Pillow text
 support, pyserial for serial trigger workflows, and TachyAudio for audio
