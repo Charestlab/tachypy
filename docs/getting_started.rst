@@ -20,7 +20,7 @@ For development:
 
    git clone https://github.com/Charestlab/tachypy.git
    cd tachypy
-   pip install --pre -e .
+   pip install -e .
 
 Optional extras
 ---------------
