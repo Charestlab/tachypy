@@ -6,11 +6,13 @@ Install TachyPy
 
 .. code-block:: bash
 
-   pip install tachypy
+   pip install --pre tachypy
 
 The base install includes GLFW for display/input, PyOpenGL, Pillow text
-support, and pyserial for serial trigger workflows. Pygame support has been
-removed; GLFW is the supported display/input backend.
+support, pyserial for serial trigger workflows, and TachyAudio for audio
+playback. Pygame support has been removed; GLFW is the supported display/input
+backend. TachyAudio is currently published as a beta release, so use
+``--pre`` when installing TachyPy from PyPI.
 
 For development:
 
@@ -18,7 +20,7 @@ For development:
 
    git clone https://github.com/Charestlab/tachypy.git
    cd tachypy
-   pip install -e .
+   pip install --pre -e .
 
 Optional extras
 ---------------
@@ -27,7 +29,7 @@ Optional extras
 
    pip install -e ".[test]"        # pytest, coverage, lint tooling
    pip install -e ".[text]"        # Pillow text fallback
-   pip install -e ".[audio_sd]"    # sounddevice backend
+   pip install -e ".[audio]"       # TachyAudio audio dependency
 
 Minimal loop
 ------------
