@@ -29,7 +29,7 @@ Optional extras
 
    pip install -e ".[test]"        # pytest, coverage, lint tooling
    pip install -e ".[text]"        # Pillow text fallback
-   pip install -e ".[audio]"       # TachyAudio audio dependency
+   # Audio support (tachyaudio) is included in the base install
 
 Minimal loop
 ------------
