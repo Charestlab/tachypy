@@ -1,16 +1,53 @@
+"""Pure pressure-feedback model: source contract, settings, and state machine.
+
+This module contains no OpenGL or drawing code, so it stays importable in
+headless environments and is unit-testable on its own.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
+from typing import Dict, Literal, Protocol, Sequence, Union, runtime_checkable
 
-from .mapping import PressureScaleMapper
-
+# Internal classification of a single key's pressure relative to the interval.
 PressureStatus = Literal["too_weak", "ideal", "too_strong"]
+
+
+@runtime_checkable
+class PressureSource(Protocol):
+    """Minimal interface a keyboard must expose to drive visual feedback.
+
+    The feedback engine is keyboard-agnostic: it only needs a way to read
+    pressures and the light-press thresholds. Any object satisfying this
+    protocol (for example ``tachywooting.WOOTING_ACQUISITION``) can drive the
+    visual feedback, without TachyPy ever importing the keyboard package.
+
+    Attributes
+    ----------
+    min_pressure_start, max_pressure_start : float
+        Bounds of the accepted light-press interval.
+    threshold : float
+        Response threshold of the acquisition task.
+    hold_seconds : float
+        Default continuous-hold duration for readiness checks.
+
+    Methods
+    -------
+    read_pressures(keys)
+        Return current analog pressures (``[0, 1]``) for the given keys,
+        as a mapping keyed by ``str(key)`` preserving input order.
+    """
+
+    min_pressure_start: float
+    max_pressure_start: float
+    threshold: float
+    hold_seconds: float
+
+    def read_pressures(self, keys: Sequence[Union[str, int]]) -> Dict[str, float]: ...
 
 
 @dataclass(frozen=True)
 class PressureFeedbackConfig:
-    """Configuration for pressure-readiness feedback.
+    """Settings for pressure-readiness feedback: thresholds, hold, and scaling.
 
     Parameters
     ----------
@@ -22,27 +59,32 @@ class PressureFeedbackConfig:
         Response threshold used by the acquisition task. Must be greater than
         ``max_pressure_start``.
     hold_seconds : float, default=0.30
-        Duration for which both pressures must remain inside the accepted
-        interval before readiness is reached.
-    mapper : PressureScaleMapper, optional
-        Object used to convert pressure values to visual scale factors.
+        Duration both pressures must remain inside the accepted interval before
+        readiness is reached.
+    min_scale, normal_scale, max_scale : float
+        Visual scale factors for the weakest non-zero pressure, the in-range
+        pressure, and strong over-pressure (used by :meth:`scale_for`).
     """
 
     min_pressure_start: float = 0.01
     max_pressure_start: float = 0.35
     threshold: float = 0.8
     hold_seconds: float = 0.30
-    mapper: PressureScaleMapper = field(default_factory=PressureScaleMapper)
+    min_scale: float = 0.25
+    normal_scale: float = 1.0
+    max_scale: float = 2.0
 
     def __post_init__(self) -> None:
         if not (0 <= self.min_pressure_start < self.max_pressure_start < self.threshold <= 1):
             raise ValueError("Require 0 <= min_pressure_start < max_pressure_start < threshold <= 1")
         if self.hold_seconds <= 0:
             raise ValueError("hold_seconds must be positive")
+        if not (0 < self.min_scale <= self.normal_scale <= self.max_scale):
+            raise ValueError("Require 0 < min_scale <= normal_scale <= max_scale")
 
     @classmethod
     def from_source(cls, source, *, hold_seconds: float | None = None, **overrides):
-        """Build a config from a :class:`~tachypy.feedback.PressureSource`.
+        """Build a config from a :class:`PressureSource`.
 
         Parameters
         ----------
@@ -52,7 +94,7 @@ class PressureFeedbackConfig:
         hold_seconds : float, optional
             Override the source's ``hold_seconds``.
         **overrides
-            Any other field to override (``mapper``, thresholds, ...).
+            Any other field to override (scale factors, thresholds, ...).
 
         Returns
         -------
@@ -67,6 +109,34 @@ class PressureFeedbackConfig:
         values.update(overrides)
         return cls(**values)
 
+    def scale_for(self, pressure: float) -> float:
+        """Return the visual scale factor for one pressure value.
+
+        Returns ``0.0`` when ``pressure`` is exactly zero, ``normal_scale``
+        inside the accepted interval, and a clamped continuous scale outside it.
+        """
+        pressure = max(0.0, min(1.0, float(pressure)))
+        if pressure == 0.0:
+            return 0.0
+
+        low, high = self.min_pressure_start, self.max_pressure_start
+        if pressure < low:
+            if low <= 0:
+                return self.normal_scale
+            ratio = pressure / low
+            return self._clamp_scale(self.min_scale + ratio * (self.normal_scale - self.min_scale))
+
+        if pressure <= high:
+            return self.normal_scale
+
+        if high >= 1.0:
+            return self.max_scale
+        ratio = (pressure - high) / (1.0 - high)
+        return self._clamp_scale(self.normal_scale + ratio * (self.max_scale - self.normal_scale))
+
+    def _clamp_scale(self, value: float) -> float:
+        return max(self.min_scale, min(self.max_scale, float(value)))
+
 
 @dataclass
 class PressureFeedbackState:
@@ -75,7 +145,7 @@ class PressureFeedbackState:
     Parameters
     ----------
     config : PressureFeedbackConfig
-        Feedback thresholds, hold duration, and pressure-to-scale mapper.
+        Feedback thresholds, hold duration, and scale factors.
 
     Attributes
     ----------
@@ -91,11 +161,6 @@ class PressureFeedbackState:
         Seconds spent continuously inside the accepted interval.
     is_ready : bool
         ``True`` once both pressures have remained ideal for ``hold_seconds``.
-
-    Notes
-    -----
-    This class contains no OpenGL or drawing code. It is pure logic and can be
-    unit-tested independently.
     """
 
     config: PressureFeedbackConfig
@@ -131,16 +196,8 @@ class PressureFeedbackState:
         self.right_pressure = float(right_pressure)
         self.left_status = self._status(self.left_pressure)
         self.right_status = self._status(self.right_pressure)
-        self.left_scale = self.config.mapper.map(
-            self.left_pressure,
-            self.config.min_pressure_start,
-            self.config.max_pressure_start,
-        )
-        self.right_scale = self.config.mapper.map(
-            self.right_pressure,
-            self.config.min_pressure_start,
-            self.config.max_pressure_start,
-        )
+        self.left_scale = self.config.scale_for(self.left_pressure)
+        self.right_scale = self.config.scale_for(self.right_pressure)
 
         if self.left_status == "ideal" and self.right_status == "ideal":
             if self._hold_started_at is None:

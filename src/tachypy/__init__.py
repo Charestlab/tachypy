@@ -44,7 +44,6 @@ __all__ = [
     "InteractiveFixationCross",
     "PressureFeedbackState",
     "PressureFeedbackConfig",
-    "PressureScaleMapper",
     "PressureSource",
     "VisualPressureFeedbackMixin",
 ]
@@ -92,7 +91,6 @@ _EXPORT_MAP = {
     "InteractiveFixationCross": ("tachypy.feedback", "InteractiveFixationCross"),
     "PressureFeedbackState": ("tachypy.feedback", "PressureFeedbackState"),
     "PressureFeedbackConfig": ("tachypy.feedback", "PressureFeedbackConfig"),
-    "PressureScaleMapper": ("tachypy.feedback", "PressureScaleMapper"),
     "PressureSource": ("tachypy.feedback", "PressureSource"),
     "VisualPressureFeedbackMixin": ("tachypy.feedback", "VisualPressureFeedbackMixin"),
     # Wooting keyboard integration — convenience shortcut for the one distinctive,
@@ -100,7 +98,7 @@ _EXPORT_MAP = {
     # Resolved lazily from the `tachypy.wooting` facade, which requires the
     # `tachypy[wooting]` extra (a clear ImportError is raised otherwise). Kept out
     # of `__all__` so tachypy core stays keyboard-agnostic and doc builds / `import *`
-    # never pull in tachywooting. Generic helpers (visualize, load_trial, lib, ffi, …)
+    # never pull in TachyWooting. Generic helpers (visualize, load_trial, lib, ffi, …)
     # are intentionally NOT aliased here — they live under `tachypy.wooting` to keep
     # the top-level namespace unambiguous and collision-free for future devices.
     "WOOTING_ACQUISITION": ("tachypy.wooting", "WOOTING_ACQUISITION"),

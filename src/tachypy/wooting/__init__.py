@@ -1,12 +1,12 @@
 """TachyPy ↔ Wooting integration (requires ``pip install tachypy[wooting]``).
 
 This module is the single import surface for using a Wooting analog keyboard
-*inside* TachyPy experiments. It re-exports tachywooting's public API and adds an
+*inside* TachyPy experiments. It re-exports TachyWooting's public API and adds an
 enriched :class:`WOOTING_ACQUISITION` that gains TachyPy visual feedback
 (``wait_light_press_visual``) on top of the hardware acquisition class.
 
 TachyPy core never imports this module, so ``pip install tachypy`` stays usable
-without a keyboard. Importing this module without tachywooting installed raises a
+without a keyboard. Importing this module without TachyWooting installed raises a
 clear, actionable error.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ from tachywooting import (  # noqa: F401
 )
 from tachywooting.visualize import visualize, visualize_all_keys  # noqa: F401
 
-
+# TachyPy-enriched acquisition class that combines Wooting's hardware acquisition and TachyPy's visual feedback.
 class WOOTING_ACQUISITION(_tachywooting.WOOTING_ACQUISITION, VisualPressureFeedbackMixin):
     """Wooting acquisition enriched with TachyPy visual feedback.
 

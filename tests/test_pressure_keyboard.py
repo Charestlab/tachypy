@@ -1,25 +1,72 @@
+import importlib
 import sys
 import types
 
 import pytest
 
+import tachypy
 from tachypy.feedback import (
     InteractiveFixationCross,
     PressureFeedbackConfig,
     PressureFeedbackState,
-    PressureScaleMapper,
     VisualPressureFeedbackMixin,
 )
 
 
-def test_pressure_scale_mapper():
-    mapper = PressureScaleMapper(min_scale=0.25, normal_scale=1.0, max_scale=2.0)
+# Public API
 
-    assert mapper.map(0.0, 0.1, 0.4) == 0.0
-    assert mapper.map(0.001, 0.1, 0.4) > 0.25
-    assert mapper.map(0.1, 0.1, 0.4) == 1.0
-    assert mapper.map(0.3, 0.1, 0.4) == 1.0
-    assert mapper.map(1.0, 0.1, 0.4) == 2.0
+def test_wooting_shortcut_is_lazy_and_kept_out_of_star_imports():
+    assert "WOOTING_ACQUISITION" not in tachypy.__all__
+    assert tachypy._EXPORT_MAP["WOOTING_ACQUISITION"] == (
+        "tachypy.wooting",
+        "WOOTING_ACQUISITION",
+    )
+
+
+# tachywooting facade
+
+def test_wooting_facade_enriches_tachywooting_acquisition(monkeypatch):
+    class BaseAcquisition:
+        pass
+
+    fake_tachywooting = types.ModuleType("tachywooting")
+    fake_tachywooting.WOOTING_ACQUISITION = BaseAcquisition
+    fake_tachywooting.convert_char_to_keycode = lambda keys: keys
+    fake_tachywooting.ffi = object()
+    fake_tachywooting.lib = object()
+    fake_tachywooting.load_session = lambda *args, **kwargs: None
+    fake_tachywooting.load_trial = lambda *args, **kwargs: None
+    fake_tachywooting.trial_to_dataframe = lambda *args, **kwargs: None
+
+    fake_visualize = types.ModuleType("tachywooting.visualize")
+    fake_visualize.visualize = lambda *args, **kwargs: None
+    fake_visualize.visualize_all_keys = lambda *args, **kwargs: None
+
+    monkeypatch.setitem(sys.modules, "tachywooting", fake_tachywooting)
+    monkeypatch.setitem(sys.modules, "tachywooting.visualize", fake_visualize)
+    original_module = sys.modules.pop("tachypy.wooting", None)
+    try:
+        module = importlib.import_module("tachypy.wooting")
+
+        assert issubclass(module.WOOTING_ACQUISITION, BaseAcquisition)
+        assert issubclass(module.WOOTING_ACQUISITION, VisualPressureFeedbackMixin)
+        assert "WOOTING_ACQUISITION" in module.__all__
+    finally:
+        sys.modules.pop("tachypy.wooting", None)
+        if original_module is not None:
+            sys.modules["tachypy.wooting"] = original_module
+
+
+# Pressure model
+
+def test_pressure_scale_for():
+    cfg = PressureFeedbackConfig(min_pressure_start=0.1, max_pressure_start=0.4, threshold=0.8)
+
+    assert cfg.scale_for(0.0) == 0.0
+    assert cfg.scale_for(0.001) > 0.25
+    assert cfg.scale_for(0.1) == 1.0
+    assert cfg.scale_for(0.3) == 1.0
+    assert cfg.scale_for(1.0) == 2.0
 
 
 def test_pressure_feedback_state_hold_timer():
@@ -62,6 +109,8 @@ def test_pressure_feedback_state_resets_when_out_of_range():
     assert state.hold_progress == 0.0
     assert not state.is_ready
 
+
+# Widget rendering
 
 def test_widget_updates_and_draws_lines(monkeypatch):
     class FakeScreen:
@@ -370,6 +419,8 @@ def test_widget_hides_pressure_text_when_pressure_is_ideal(monkeypatch):
 
     assert FakeText.created == []
 
+
+# Visual wait loop
 
 def _make_fake_acq(reader, hold_seconds=0.001):
     """Build a minimal PressureSource-like object enriched with the visual mixin."""

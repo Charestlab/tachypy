@@ -52,6 +52,8 @@ software timestamps alone.
   - `GLSystemText` (backward-compatible explicit name for `Text`).
 - Psychophysics helpers (`make_gabor`, gratings, normalization, dithering).
 - Audio playback utility (`Audio`) backed by `tachyaudio`.
+- Optional Wooting analog-keyboard integration (`tachypy[wooting]`): on-screen
+  pressure feedback and `WOOTING_ACQUISITION` straight from `tachypy`.
 - Test suite for core logic and regressions.
 
 ## Installation
@@ -80,8 +82,25 @@ Optional extras:
 ```bash
 pip install -e ".[test]"        # pytest
 pip install -e ".[text]"        # Pillow text fallback
+pip install -e ".[wooting]"     # Wooting analog-keyboard integration
 # Audio support (tachyaudio) is included in the base install
 ```
+
+### Wooting analog-keyboard integration
+
+`pip install "tachypy[wooting]"` adds support for Wooting analog keyboards
+(pressure acquisition, logging, and on-screen visual feedback):
+
+```python
+from tachypy import Screen, WOOTING_ACQUISITION
+
+acq = WOOTING_ACQUISITION(threshold=0.8)
+acq.initialize_keyboard()
+acq.wait_light_press_visual(target_keys=["c", "z"], screen=Screen(fullscreen=False))
+```
+
+See the [Wooting docs page](https://tachypy.readthedocs.io/en/latest/wooting.html)
+for details.
 
 ### Audio dependency
 
@@ -198,6 +217,7 @@ Expanded docs live in `/docs` and include:
 - backend behavior and input routing
 - text rendering options
 - audio backend guidance
+- Wooting analog-keyboard integration
 - examples and contribution workflow
 
 Hosted docs (Read the Docs): https://tachypy.readthedocs.io/
