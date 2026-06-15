@@ -15,7 +15,7 @@ setup(
     install_requires=requires,
     extras_require={
         'test': ['pytest>=7.0', 'pytest-cov>=5.0', 'ruff>=0.6'],
-        'wooting': ['tachywooting>=0.2.0'],
+        'wooting': ['tachywooting>=0.2.1'],
     },
     python_requires='>=3.10',
     author='Ian Charest, Mathias Salvas-Hebert and Frederic Gosselin',
