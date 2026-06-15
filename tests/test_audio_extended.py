@@ -2,102 +2,159 @@ import numpy as np
 import pytest
 
 import tachypy.audio as audio_module
-from tachypy.audio import Audio, _AudioBackend, _DummyBackend, _SoundDeviceBackend
+from tachypy.audio import Audio
 
 
-def test_audio_backend_base_methods_raise_and_close_calls_stop():
-    backend = _AudioBackend()
-    with pytest.raises(NotImplementedError):
-        backend.play(np.zeros(1, dtype=np.float32), 44100)
-    with pytest.raises(NotImplementedError):
-        backend.wait()
-    with pytest.raises(NotImplementedError):
-        backend.stop()
-
-
-def test_sounddevice_backend_calls_sd(monkeypatch):
+class FakeOutputStream:
     calls = []
+    drain_result = True
 
-    class FakeSD:
-        @staticmethod
-        def play(data, samplerate):
-            calls.append(("play", samplerate, data.shape))
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.closed = False
+        FakeOutputStream.calls.append(("init", kwargs))
 
-        @staticmethod
-        def wait():
-            calls.append(("wait",))
+    def start(self):
+        FakeOutputStream.calls.append(("start",))
 
-        @staticmethod
-        def stop():
-            calls.append(("stop",))
+    def write_all(self, data, timeout=None):
+        FakeOutputStream.calls.append(("write_all", data.shape, data.dtype, timeout))
+        return data.shape[0]
 
-    monkeypatch.setattr(audio_module, "sd", FakeSD)
-    backend = _SoundDeviceBackend()
-    backend.play(np.zeros((4, 1), dtype=np.float32), sample_rate=22050)
-    backend.wait()
-    backend.stop()
-    assert calls == [("play", 22050, (4, 1)), ("wait",), ("stop",)]
+    def drain(self, timeout=None):
+        FakeOutputStream.calls.append(("drain", timeout))
+        return self.drain_result
 
+    def stop(self):
+        FakeOutputStream.calls.append(("stop",))
 
-def test_dummy_backend_wait_noop_and_sleep_branch(monkeypatch):
-    backend = _DummyBackend()
-    backend.wait()  # no scheduled playback branch
-
-    t = {"now": 1_000_000_000}
-    slept = []
-
-    monkeypatch.setattr(audio_module.time, "monotonic_ns", lambda: t["now"])
-    monkeypatch.setattr(audio_module.time, "sleep", lambda s: slept.append(s))
-    backend.play(np.zeros(100, dtype=np.float32), sample_rate=100)
-    backend.wait()
-    assert slept and slept[0] > 0
+    def close(self):
+        self.closed = True
+        FakeOutputStream.calls.append(("close",))
 
 
-def test_build_backend_auto_prefers_sounddevice_when_available(monkeypatch):
-    class FakeSD:
-        pass
-
-    monkeypatch.setattr(audio_module, "sd", FakeSD)
-    backend = audio_module._build_backend("auto")
-    assert backend.name == "sounddevice"
+def install_fake_tachyaudio(monkeypatch):
+    FakeOutputStream.calls = []
+    fake = type("FakeTachyAudio", (), {"OutputStream": FakeOutputStream})
+    monkeypatch.setattr(audio_module, "tachyaudio", fake)
+    return fake
 
 
 def test_audio_play_validation_errors():
-    audio = Audio(backend="dummy")
+    audio = Audio()
     with pytest.raises(ValueError, match="NumPy"):
         audio.play([1, 2, 3], when=0)
     with pytest.raises(ValueError, match="1D or 2D"):
         audio.play(np.zeros((2, 2, 2), dtype=np.float32), when=0)
 
 
-def test_audio_playback_thread_and_close(monkeypatch):
-    events = []
+def test_audio_playback_thread_uses_tachyaudio_stream(monkeypatch):
+    install_fake_tachyaudio(monkeypatch)
+    audio = Audio(sample_rate=22_050, channels=1, block_size=64, device_id="dev", latency=0.01, timeout=0.5)
+    data = np.zeros(8, dtype=np.float32)
 
-    class FakeBackend:
-        name = "fake"
+    audio._playback_thread(data, delay=0)
 
-        def play(self, data, sample_rate):
-            events.append(("play", sample_rate, data.shape))
-
-        def wait(self):
-            events.append(("wait",))
-
-        def stop(self):
-            events.append(("stop",))
-
-        def close(self):
-            events.append(("close",))
-
-    monkeypatch.setattr(audio_module, "_build_backend", lambda _: FakeBackend())
-    audio = Audio(backend="dummy")
-    audio._playback_thread(np.zeros(8, dtype=np.float32), delay=0)
     assert audio.is_playing is False
-    assert events[:2] == [("play", 44100, (8,)), ("wait",)]
+    assert FakeOutputStream.calls[0] == (
+        "init",
+        {
+            "sample_rate": 22_050,
+            "channels": 1,
+            "block_size": 64,
+            "device_id": "dev",
+            "latency": 0.01,
+            "dtype": "float32",
+        },
+    )
+    assert ("start",) in FakeOutputStream.calls
+    assert ("write_all", (8,), np.dtype("float32"), 0.5) in FakeOutputStream.calls
+    assert ("drain", 0.5) in FakeOutputStream.calls
+    assert FakeOutputStream.calls[-1] == ("close",)
 
+
+def test_audio_playback_thread_delay_and_drain_timeout(monkeypatch):
+    install_fake_tachyaudio(monkeypatch)
+    audio = Audio(timeout=0.1)
+    events = []
     monkeypatch.setattr(audio, "_precise_delay", lambda d: events.append(("delay", d)))
-    audio._playback_thread(np.zeros(4, dtype=np.float32), delay=10)
-    assert ("delay", 10) in events
+    FakeOutputStream.drain_result = False
+
+    with pytest.raises(TimeoutError, match="did not drain"):
+        audio._playback_thread(np.zeros(4, dtype=np.float32), delay=10)
+
+    FakeOutputStream.drain_result = True
+    assert events == [("delay", 10)]
+    assert FakeOutputStream.calls[-1] == ("close",)
+
+
+def test_playback_thread_does_not_clear_replaced_stream(monkeypatch):
+    FakeOutputStream.calls = []
+    replacement = object()
+
+    class ReplacingOutputStream(FakeOutputStream):
+        def close(self):
+            audio._stream = replacement
+            audio.is_playing = True
+            super().close()
+
+    fake = type("FakeTachyAudio", (), {"OutputStream": ReplacingOutputStream})
+    monkeypatch.setattr(audio_module, "tachyaudio", fake)
+    audio = Audio()
+
+    audio._playback_thread(np.zeros(4, dtype=np.float32), delay=0)
+
+    assert audio._stream is replacement
+    assert audio.is_playing is True
+
+
+def test_stop_closes_active_stream(monkeypatch):
+    install_fake_tachyaudio(monkeypatch)
+    audio = Audio()
+    stream = FakeOutputStream(sample_rate=1, channels=1, block_size=None, device_id=None, latency=None, dtype="float32")
+    audio._stream = stream
+    audio.is_playing = True
 
     audio.stop()
-    audio.close()
-    assert ("stop",) in events and ("close",) in events
+
+    assert ("stop",) in FakeOutputStream.calls
+    assert ("close",) in FakeOutputStream.calls
+    assert audio._stream is None
+    assert audio.is_playing is False
+
+
+def test_stop_does_not_clear_replaced_stream(monkeypatch):
+    install_fake_tachyaudio(monkeypatch)
+    audio = Audio()
+    stream = FakeOutputStream(sample_rate=1, channels=1, block_size=None, device_id=None, latency=None, dtype="float32")
+    replacement = FakeOutputStream(
+        sample_rate=1,
+        channels=1,
+        block_size=None,
+        device_id=None,
+        latency=None,
+        dtype="float32",
+    )
+    audio._stream = stream
+    audio.is_playing = True
+
+    original_close = stream.close
+
+    def close_and_replace():
+        audio._stream = replacement
+        audio.is_playing = True
+        original_close()
+
+    stream.close = close_and_replace
+
+    audio.stop()
+
+    assert audio._stream is replacement
+    assert audio.is_playing is True
+
+
+def test_audio_constructor_validates_sample_rate_and_channels():
+    with pytest.raises(ValueError, match="sample_rate"):
+        Audio(sample_rate=0)
+    with pytest.raises(ValueError, match="channels"):
+        Audio(channels=0)

@@ -18,7 +18,7 @@ autosummary_generate = True
 autodoc_mock_imports = [
     "OpenGL",
     "glfw",
-    "sounddevice",
+    "tachyaudio",
     "screeninfo",
     "PIL",
     "freetype",
