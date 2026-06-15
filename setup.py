@@ -9,12 +9,15 @@ with open('requirements.txt') as reqfile:
 
 setup(
     name='tachypy',
-    version='0.1.15',
+    version='0.1.17',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=requires,
+    extras_require={
+        'wooting': ['tachywooting>=0.2.0'],
+    },
     python_requires='>=3.6',
-    author='Ian Charest and Frederic Gosselin',
+    author='Ian Charest, Mathias Salvas-Hebert and Frederic Gosselin',
     author_email='charest.ian@gmail.com',
     description='A package for timing-focused psychophysics using GLFW and OpenGL.',
     long_description=open('README.md').read(),
@@ -33,6 +36,8 @@ setup(
     entry_points={
         'console_scripts': [
             'tachypy-clock-demo=tachypy.examples.clock_timer_demo:main',
+            'tachypy-wooting-fixation-demo=tachypy.wooting.demos.visual_fixation_demo:main',
+            'tachypy-wooting-mini-bw=tachypy.wooting.demos.mini_bw_experiment:main',
         ],
     },
 )

@@ -28,6 +28,9 @@ Optional extras
    pip install -e ".[test]"        # pytest, coverage, lint tooling
    pip install -e ".[text]"        # Pillow text fallback
    pip install -e ".[audio_sd]"    # sounddevice backend
+   pip install -e ".[wooting]"     # Wooting analog-keyboard integration
+
+See :doc:`wooting` for the Wooting analog-keyboard integration.
 
 Minimal loop
 ------------
