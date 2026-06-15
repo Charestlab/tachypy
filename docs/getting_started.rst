@@ -27,9 +27,9 @@ Optional extras
 .. code-block:: bash
 
    pip install -e ".[test]"        # pytest, coverage, lint tooling
-   pip install -e ".[text]"        # Pillow text fallback
    pip install -e ".[wooting]"     # Wooting analog-keyboard integration
    # Audio support (tachyaudio) is included in the base install
+   # Pillow text support is included in the base install
 
 See :doc:`wooting` for the Wooting analog-keyboard integration.
 
