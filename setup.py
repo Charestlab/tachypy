@@ -13,8 +13,16 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=requires,
+    extras_require={
+        'test': ['pytest>=7.0', 'pytest-cov>=5.0', 'ruff>=0.6'],
+        'text': ['Pillow>=10.0'],
+        'system_text': ['freetype-py>=2.4', 'uharfbuzz>=0.39'],
+        'glfw': ['glfw>=2.7'],
+        'audio': [],
+        'wooting': ['tachywooting>=0.2.1'],
+    },
     python_requires='>=3.10',
-    author='Ian Charest and Frederic Gosselin',
+    author='Ian Charest, Mathias Salvas-Hebert and Frederic Gosselin',
     author_email='charest.ian@gmail.com',
     description='A package for timing-focused psychophysics using GLFW and OpenGL.',
     long_description=open('README.md').read(),
@@ -32,6 +40,8 @@ setup(
     entry_points={
         'console_scripts': [
             'tachypy-clock-demo=tachypy.examples.clock_timer_demo:main',
+            'tachypy-wooting-fixation-demo=tachypy.wooting.demos.visual_fixation_demo:main',
+            'tachypy-wooting-mini-bw=tachypy.wooting.demos.mini_bw_experiment:main',
         ],
     },
 )

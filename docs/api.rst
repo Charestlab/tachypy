@@ -34,3 +34,13 @@ Core modules
 
 .. automodule:: tachypy.psychophysics
    :members:
+
+Wooting pressure feedback
+-------------------------
+
+Keyboard-agnostic visual feedback toolkit (see :doc:`wooting`). These modules
+never import a keyboard package; they render feedback for any object satisfying
+:class:`tachypy.feedback.PressureSource`.
+
+.. automodule:: tachypy.feedback
+   :members:

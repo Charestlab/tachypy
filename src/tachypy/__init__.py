@@ -40,6 +40,12 @@ __all__ = [
     "location_bubbles",
     "Audio",
     "QuestObject",
+    "PressureFeedbackWidget",
+    "InteractiveFixationCross",
+    "PressureFeedbackState",
+    "PressureFeedbackConfig",
+    "PressureSource",
+    "VisualPressureFeedbackMixin",
 ]
 
 
@@ -81,6 +87,21 @@ _EXPORT_MAP = {
     "location_bubbles": ("tachypy.psychophysics", "location_bubbles"),
     "Audio": ("tachypy.audio", "Audio"),
     "QuestObject": ("tachypy.quest", "QuestObject"),
+    "PressureFeedbackWidget": ("tachypy.feedback", "PressureFeedbackWidget"),
+    "InteractiveFixationCross": ("tachypy.feedback", "InteractiveFixationCross"),
+    "PressureFeedbackState": ("tachypy.feedback", "PressureFeedbackState"),
+    "PressureFeedbackConfig": ("tachypy.feedback", "PressureFeedbackConfig"),
+    "PressureSource": ("tachypy.feedback", "PressureSource"),
+    "VisualPressureFeedbackMixin": ("tachypy.feedback", "VisualPressureFeedbackMixin"),
+    # Wooting keyboard integration — convenience shortcut for the one distinctive,
+    # high-frequency entry point: `from tachypy import WOOTING_ACQUISITION`.
+    # Resolved lazily from the `tachypy.wooting` facade, which requires the
+    # `tachypy[wooting]` extra (a clear ImportError is raised otherwise). Kept out
+    # of `__all__` so tachypy core stays keyboard-agnostic and doc builds / `import *`
+    # never pull in TachyWooting. Generic helpers (visualize, load_trial, lib, ffi, …)
+    # are intentionally NOT aliased here — they live under `tachypy.wooting` to keep
+    # the top-level namespace unambiguous and collision-free for future devices.
+    "WOOTING_ACQUISITION": ("tachypy.wooting", "WOOTING_ACQUISITION"),
 }
 
 
