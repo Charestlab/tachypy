@@ -51,7 +51,8 @@ def main() -> int:
         score = Text(text="Score: —", font_size=24, color=(0, 0, 0),
                      dest_rect=(w - 240, margin + 50, w - margin, margin + 122))
 
-        yes_code, no_code = acq._to_keycodes([YES_KEY, NO_KEY])
+        from tachypy.wooting import convert_char_to_keycode
+        yes_code, no_code = convert_char_to_keycode([YES_KEY, NO_KEY])
 
         # --- instructions screen ---
         instructions = Text(
