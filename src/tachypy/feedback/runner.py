@@ -102,9 +102,11 @@ def run_light_press_visual(
 
     exit_key_set = {str(key).lower() for key in exit_keys}
     if response_handler is not None and hasattr(response_handler, "keys_to_listen"):
-        response_handler.keys_to_listen = sorted(exit_key_set)
+        existing = getattr(response_handler, "keys_to_listen", None) or []
+        merged = {str(key).lower() for key in existing} | exit_key_set
+        response_handler.keys_to_listen = sorted(merged)
         if hasattr(response_handler, "_probed_keys"):
-            response_handler._probed_keys.update(exit_key_set)
+            response_handler._probed_keys.update(merged)
 
     next_t = time.perf_counter()
     deadline = None if timeout_seconds is None else next_t + timeout_seconds
