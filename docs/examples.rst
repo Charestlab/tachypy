@@ -39,4 +39,3 @@ Notes
 -----
 
 - ``Screen`` defaults to GLFW, and ``Text`` defaults to the system-font renderer.
-- On constrained CI systems, set ``TACHYPY_AUDIO_BACKEND=dummy``.

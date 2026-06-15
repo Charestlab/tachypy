@@ -51,7 +51,7 @@ software timestamps alone.
   - `GLTextSDF` (distance-field text),
   - `GLSystemText` (backward-compatible explicit name for `Text`).
 - Psychophysics helpers (`make_gabor`, gratings, normalization, dithering).
-- Audio playback utility (`Audio`) with backend abstraction (`sounddevice` or `dummy`).
+- Audio playback utility (`Audio`) backed by `tachyaudio`.
 - Test suite for core logic and regressions.
 
 ## Installation
@@ -63,15 +63,16 @@ pip install tachypy
 ```
 
 The base install includes GLFW for display/input, PyOpenGL, Pillow text
-support, and pyserial for serial/trigger workflows. Pygame support has been
-removed; GLFW is the supported display/input backend.
+support, pyserial for serial/trigger workflows, and TachyAudio for audio playback.
+Pygame support has been removed; GLFW is the supported display/input backend.
+TachyAudio is currently published as a beta release; if your pip resolver refuses pre-releases, pass `--pre` (or install `tachyaudio==0.2.0b1`) explicitly.
 
 Editable install for development:
 
 ```bash
 git clone https://github.com/Charestlab/tachypy.git
 cd tachypy
-pip install -e .
+pip install --pre -e .
 ```
 
 Optional extras:
@@ -79,41 +80,15 @@ Optional extras:
 ```bash
 pip install -e ".[test]"        # pytest
 pip install -e ".[text]"        # Pillow text fallback
-pip install -e ".[audio_sd]"    # sounddevice backend
+# Audio support (tachyaudio) is included in the base install
 ```
 
-### sounddevice / PortAudio prerequisites
+### Audio dependency
 
-`sounddevice` requires PortAudio on some systems.
-
-Linux (Debian/Ubuntu):
-
-```bash
-sudo apt update
-sudo apt install libportaudio2 libportaudiocpp0 portaudio19-dev
-```
-
-macOS:
-
-Install Homebrew (if needed):
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-Then install PortAudio:
-
-```bash
-brew install portaudio
-```
-
-Windows:
-
-`sounddevice` wheels often already include what is needed. If installation still fails, one workaround is:
-
-```bash
-choco install portaudio
-```
+TachyPy audio now uses `tachyaudio>=0.2.0b1`. TachyPy no longer depends on
+`sounddevice` or requires users to install PortAudio separately. Hardware/audio
+device validation should still be done on the lab machine that will run the
+experiment.
 
 ## Quick Start
 
@@ -212,11 +187,8 @@ Current suite covers audio timing helpers, response/key state handling,
 backend behavior, psychophysics invariants, text layout/renderer basics, and
 other regression-prone utility paths.
 
-For CI/headless testing, use:
-
-```bash
-TACHYPY_AUDIO_BACKEND=dummy pytest
-```
+CI uses mocked TachyAudio streams for deterministic unit tests. Keep hardware
+audio-device validation as a dedicated local or lab-machine test.
 
 ## Documentation
 

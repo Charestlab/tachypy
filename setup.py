@@ -16,7 +16,7 @@ setup(
     extras_require={
         'wooting': ['tachywooting>=0.2.0'],
     },
-    python_requires='>=3.6',
+    python_requires='>=3.10',
     author='Ian Charest, Mathias Salvas-Hebert and Frederic Gosselin',
     author_email='charest.ian@gmail.com',
     description='A package for timing-focused psychophysics using GLFW and OpenGL.',
@@ -25,12 +25,11 @@ setup(
     url='https://github.com/CharestLab/tachypy',
     classifiers=[
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
         'Operating System :: OS Independent',
     ],
     entry_points={
