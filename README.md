@@ -82,8 +82,7 @@ Optional extras:
 ```bash
 pip install -e ".[test]"        # pytest
 pip install -e ".[wooting]"     # Wooting analog-keyboard integration
-# Audio support (tachyaudio) is included in the base install
-# Pillow text support is included in the base install
+# Pillow, FreeType, HarfBuzz, GLFW, and audio are included in the base install
 ```
 
 ### Wooting analog-keyboard integration

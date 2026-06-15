@@ -9,6 +9,7 @@ import numpy as np
 try:
     from tachypy import FixationCross, ResponseHandler, Screen, Text, Texture
     from tachypy import WOOTING_ACQUISITION
+    from tachypy.wooting import convert_char_to_keycode
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(
         "This demo requires the Wooting integration: pip install 'tachypy[wooting]'"
@@ -51,7 +52,6 @@ def main() -> int:
         score = Text(text="Score: —", font_size=24, color=(0, 0, 0),
                      dest_rect=(w - 240, margin + 50, w - margin, margin + 122))
 
-        from tachypy.wooting import convert_char_to_keycode
         yes_code, no_code = convert_char_to_keycode([YES_KEY, NO_KEY])
 
         # --- instructions screen ---

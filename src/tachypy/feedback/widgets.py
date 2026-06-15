@@ -55,6 +55,7 @@ class InteractiveFixationCross(PressureFeedbackWidget):
         background_color=(128, 128, 128),
         # Optional objects used to simplify setup
         fixation_cross=None,
+        acquisition=None,
         # Optional goal markers (thin vertical ticks at ±half_width)
         show_goal_markers: bool = False,
         # Optional real-time pressure text

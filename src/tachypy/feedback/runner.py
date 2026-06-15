@@ -33,6 +33,8 @@ def _exit_requested(response_handler, exit_keys: set[str]) -> bool:
         response_handler.get_events()
     if hasattr(response_handler, "should_quit") and response_handler.should_quit():
         return True
+    if hasattr(response_handler, "key_down_events"):
+        return any(str(key).lower() in exit_keys for key in response_handler.key_down_events)
     if not hasattr(response_handler, "get_key_presses"):
         return False
     for event in response_handler.get_key_presses():
