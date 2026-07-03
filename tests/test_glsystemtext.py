@@ -4,6 +4,7 @@ import tachypy.glsystemtext as glsys_module
 import tachypy.text as text_module
 from tachypy.glsystemtext import GLSystemText
 from pathlib import Path
+from types import SimpleNamespace
 
 
 class FakeFallback:
@@ -115,3 +116,49 @@ def test_draw_skips_blank_lines_without_crashing(monkeypatch):
         monkeypatch.setattr(glsys_module, gl_func, noop)
 
     text.draw()  # must not raise
+
+
+def test_draw_centers_actual_glyph_bounds_in_dest_rect(monkeypatch):
+    # Regression test for descenders/bottom-heavy glyphs: vertical alignment
+    # must use the rendered glyph bounds, not only ascender/line-height metrics.
+    text = GLSystemText(
+        "g",
+        dest_rect=[0, 0, 100, 10],
+        font_size=10.0,
+    )
+    text._enabled = True
+    text._fallback = None
+    text._content_scale = 1.0
+    text._line_height = 10.0
+    text._ascender = 8.0
+
+    fake_info = SimpleNamespace(codepoint=1)
+    fake_pos = SimpleNamespace(x_advance=9 * 64, x_offset=0, y_offset=0)
+    fake_glyph = glsys_module._GlyphTexture(
+        texture_id=0,
+        width=9,
+        height=10,
+        bearing_x=0.0,
+        bearing_y=5.0,
+    )
+    monkeypatch.setattr(text, "_shape", lambda line: ([fake_info], [fake_pos]))
+    monkeypatch.setattr(text, "_glyph_texture", lambda codepoint: fake_glyph)
+
+    vertices = []
+
+    def capture_vertex(x, y):
+        vertices.append((x, y))
+
+    noop = lambda *args, **kwargs: None
+    for gl_func in ("glEnable", "glDisable", "glBlendFunc", "glColor3f", "glBindTexture", "glBegin", "glEnd", "glTexCoord2f"):
+        monkeypatch.setattr(glsys_module, gl_func, noop)
+    monkeypatch.setattr(glsys_module, "glVertex2f", capture_vertex)
+
+    text.draw()
+
+    x_values = [x for x, _ in vertices]
+    y_values = [y for _, y in vertices]
+    assert min(x_values) == pytest.approx(46.0)
+    assert max(x_values) == pytest.approx(54.0)
+    assert min(y_values) == pytest.approx(0.0)
+    assert max(y_values) == pytest.approx(10.0)

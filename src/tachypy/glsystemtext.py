@@ -357,6 +357,35 @@ class GLSystemText:
             pen_x += float(pos.x_advance) / 64.0 / self._content_scale
         return pen_x
 
+    def _line_bounds(self, line: str) -> Tuple[float, float, float]:
+        """Return the rendered line bounds as (width, top, bottom)."""
+        if line == "":
+            return 0.0, 0.0, 0.0
+
+        # Use actual glyph extents so descenders do not get vertically clipped.
+        infos, positions = self._shape(line)
+        scale = self._content_scale
+        pen_x = 0.0
+        max_x = 0.0
+        top = 0.0
+        bottom = 0.0
+
+        for info, pos in zip(infos, positions):
+            glyph = self._glyph_texture(info.codepoint)
+            x_offset = float(pos.x_offset) / 64.0 / scale
+            y_offset = float(pos.y_offset) / 64.0 / scale
+
+            glyph_x = pen_x + x_offset + glyph.bearing_x / scale
+            glyph_top = -glyph.bearing_y / scale - y_offset
+            glyph_bottom = glyph_top + glyph.height / scale
+
+            max_x = max(max_x, glyph_x + glyph.width / scale)
+            top = min(top, glyph_top)
+            bottom = max(bottom, glyph_bottom)
+            pen_x += float(pos.x_advance) / 64.0 / scale
+
+        return max(max_x, pen_x), top, bottom
+
     def _split_lines(self) -> List[str]:
         """Wrap text lines to the destination rectangle width when provided."""
         if not self.dest_rect:
@@ -403,23 +432,26 @@ class GLSystemText:
             return
 
         lines = self._split_lines()
-        line_widths = [self._measure_line(line) for line in lines]
-        total_height = max(1.0, len(lines) * self._line_height)
+        line_bounds = [self._line_bounds(line) for line in lines]
+        line_widths = [bounds[0] for bounds in line_bounds]
+        block_top = min((i * self._line_height + top for i, (_, top, _) in enumerate(line_bounds)), default=0.0)
+        block_bottom = max((i * self._line_height + bottom for i, (_, _, bottom) in enumerate(line_bounds)), default=0.0)
+        total_height = max(1.0, block_bottom - block_top)
 
         if self.dest_rect:
             x1, y1, x2, y2 = self.dest_rect
             rect_w = float(x2 - x1)
             rect_h = float(y2 - y1)
             if self.vertical_align == "top":
-                baseline0 = y1 + self._ascender
+                baseline0 = y1 - block_top
             elif self.vertical_align == "bottom":
-                baseline0 = y1 + rect_h - total_height + self._ascender
+                baseline0 = y1 + rect_h - total_height - block_top
             else:
-                baseline0 = y1 + (rect_h - total_height) / 2.0 + self._ascender
+                baseline0 = y1 + (rect_h - total_height) / 2.0 - block_top
         else:
             x1 = 0.0
             rect_w = max(line_widths) if line_widths else 0.0
-            baseline0 = self._ascender
+            baseline0 = -block_top
 
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -445,6 +477,8 @@ class GLSystemText:
 
             infos, positions = self._shape(line)
             scale = self._content_scale
+            # Align glyph quads to physical pixels to avoid interpolation blur.
+            snap = (lambda value: round(value * scale) / scale) if scale > 0 else (lambda value: value)
             for info, pos in zip(infos, positions):
                 glyph = self._glyph_texture(info.codepoint)
 
@@ -455,6 +489,7 @@ class GLSystemText:
                 y = baseline - glyph.bearing_y / scale - y_offset
                 x2 = x + glyph.width / scale
                 y2 = y + glyph.height / scale
+                x, y, x2, y2 = (snap(value) for value in (x, y, x2, y2))
 
                 glBindTexture(GL_TEXTURE_2D, glyph.texture_id)
                 glBegin(GL_QUADS)
