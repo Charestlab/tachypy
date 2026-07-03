@@ -32,6 +32,7 @@ def test_wooting_facade_enriches_tachywooting_acquisition(monkeypatch):
     fake_tachywooting = types.ModuleType("tachywooting")
     fake_tachywooting.WOOTING_ACQUISITION = BaseAcquisition
     fake_tachywooting.convert_char_to_keycode = lambda keys: keys
+    fake_tachywooting.convert_keycode_to_char = lambda keycode: keycode
     fake_tachywooting.ffi = object()
     fake_tachywooting.lib = object()
     fake_tachywooting.load_session = lambda *args, **kwargs: None

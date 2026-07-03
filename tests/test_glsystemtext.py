@@ -1,3 +1,5 @@
+import pytest
+
 import tachypy.glsystemtext as glsys_module
 import tachypy.text as text_module
 from tachypy.glsystemtext import GLSystemText
@@ -70,3 +72,46 @@ def test_resolve_font_path_uses_best_token_match(monkeypatch):
 
     resolved = GLSystemText.resolve_font_path("Helvetica Neue, Arial")
     assert resolved == Path("/tmp/HelveticaNeue-Bold.ttf")
+
+
+def test_resolve_font_path_prefers_regular_over_unrequested_style_variants(monkeypatch):
+    # Regression test: a plain family query must not resolve to a styled
+    # variant just because it happens to be scored/iterated first.
+    fake_fonts = [
+        Path("/tmp/Arial Narrow Italic.ttf"),
+        Path("/tmp/Arial Bold Italic.ttf"),
+        Path("/tmp/Arial Bold.ttf"),
+        Path("/tmp/Arial Italic.ttf"),
+        Path("/tmp/Arial.ttf"),
+    ]
+    monkeypatch.setattr(GLSystemText, "_iter_system_font_files", staticmethod(lambda: fake_fonts))
+
+    assert GLSystemText.resolve_font_path("Arial") == Path("/tmp/Arial.ttf")
+    assert GLSystemText.resolve_font_path("Arial Italic") == Path("/tmp/Arial Italic.ttf")
+    assert GLSystemText.resolve_font_path("Arial Bold") == Path("/tmp/Arial Bold.ttf")
+
+
+def test_draw_skips_blank_lines_without_crashing(monkeypatch):
+    # Regression test: a blank line (e.g. from "\n\n" in the source text, or
+    # from word-wrapping) makes HarfBuzz return glyph_positions=None for the
+    # empty buffer (no script could be guessed), which used to crash
+    # zip(infos, positions) in draw().
+    pytest.importorskip("freetype")
+    pytest.importorskip("uharfbuzz")
+
+    text = GLSystemText(
+        "Line one.\n\nLine two.",
+        dest_rect=[0, 0, 500, 300],
+        font_name="Arial",
+        font_size=32.0,
+    )
+    assert text._enabled, "expected the real freetype+harfbuzz path to be active"
+    assert "" in text._split_lines()
+
+    fake_glyph = glsys_module._GlyphTexture(texture_id=0, width=1, height=1, bearing_x=0.0, bearing_y=0.0)
+    monkeypatch.setattr(text, "_glyph_texture", lambda codepoint: fake_glyph)
+    noop = lambda *args, **kwargs: None
+    for gl_func in ("glEnable", "glDisable", "glBlendFunc", "glColor3f", "glBindTexture", "glBegin", "glEnd", "glTexCoord2f", "glVertex2f"):
+        monkeypatch.setattr(glsys_module, gl_func, noop)
+
+    text.draw()  # must not raise

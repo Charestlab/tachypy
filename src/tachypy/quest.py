@@ -70,27 +70,30 @@ def alt_round(x):
 class QuestObject:
     
     """Measure threshold using a Weibull psychometric function.
-    
-    Threshold 't' is measured on an abstract 'intensity' scale, which
-    usually corresponds to log10 contrast.
+
+    Threshold 't' is measured on an abstract *intensity* scale — a
+    monotonic stimulus dimension (e.g. log10 contrast for visual
+    experiments, dB SPL for auditory experiments). All trial levels
+    passed to ``update()`` and returned by ``quantile()``/``mean()``
+    must be expressed in the same units.
 
     The Weibull psychometric function:
-    
+
     p2=delta*gamma+(1-delta)*(1-(1-gamma)*exp(-10**(beta*(x2+xThreshold))))
 
     where x represents log10 contrast relative to threshold. The
     Weibull function itself appears only in recompute(), which uses
     the specified parameter values in self to compute a psychometric
     function and store it in self. All the other methods simply use
-    the psychometric function stored as instance
-    variables. recompute() is called solely by __init__() and
-    beta_analysis() (and possibly by a few user programs). Thus, if
-    you prefer to use a different kind of psychometric function,
-    called Foo, you need only subclass QuestObject, overriding
-    __init__(), recompute(), and (if you need it) beta_analysis().
+    the psychometric function stored as instance variables.
+    recompute() is called solely by __init__() and beta_analysis()
+    (and possibly by a few user programs). Thus, if you prefer to use
+    a different kind of psychometric function, called Foo, you need
+    only subclass QuestObject, overriding __init__(), recompute(), and
+    (if you need it) beta_analysis().
 
     instance variables:
-    
+
     tGuess is your prior threshold estimate.
 
     tGuessSd is the standard deviation you assign to that guess.
@@ -103,11 +106,12 @@ class QuestObject:
     beta, delta, and gamma are the parameters of a Weibull
     psychometric function.
 
-    beta controls the steepness of the psychometric
-    function. Typically 3.5.
+    beta controls the steepness of the psychometric function.
+    Typically 3.5.
 
     delta is the fraction of trials on which the observer presses
-    blindly.  Typically 0.01.
+    blindly.
+    Typically 0.01.
 
     gamma is the fraction of trials that will generate response 1 when
     intensity==-inf.
@@ -117,9 +121,15 @@ class QuestObject:
     range is the intensity difference between the largest and smallest
     intensity that the internal table can store. E.g. 5. This interval
     will be centered on the initial guess tGuess,
-    i.e. [tGuess-range/2, tGuess+range/2].  QUEST assumes that
+    i.e. [tGuess-range/2, tGuess+range/2]. QUEST assumes that
     intensities outside of this interval have zero prior probability,
     i.e. they are impossible.
+
+    pdf is a 1-D numpy array holding the posterior probability density
+    over possible threshold values. It is indexed by the intensity
+    axis self.x (offsets from tGuess, spaced by grain). Initialized
+    as a Gaussian prior and updated via Bayes' rule after each trial
+    by update() / recompute().
 
     """
     def __init__(self,tGuess,tGuessSd,pThreshold,beta,delta,gamma,grain=0.01,range=None):
@@ -219,13 +229,14 @@ class QuestObject:
         return t,p
 
     def p(self,x):
-        """probability of correct response at intensity x.
+        """Probability of correct response at intensity x relative to threshold.
 
         p=q.p(x)
-        
-        The probability of a correct (or yes) response at intensity x,
-        assuming threshold is at x=0.
-        
+
+        x is an intensity offset from threshold (i.e. x=0 means the
+        stimulus is presented at threshold). Returns the probability of
+        a correct (or yes) response according to the fitted Weibull.
+
         This was converted from the Psychtoolbox's QuestP function.
         """
         if x < self.x2[0]:
@@ -380,14 +391,19 @@ class QuestObject:
     def update(self,intensity,response):
         """Update Quest posterior pdf.
 
+        intensity is the stimulus level shown on this trial, expressed
+        in the same intensity units as tGuess (e.g. log10 contrast).
+        response is 1 for a correct/yes response, 0 for incorrect/no.
+
         Update self to reflect the results of this trial. The
         historical records self.intensity and self.response are always
         updated, but self.pdf is only updated if self.updatePdf is
-        true. You can always call QuestRecompute to recreate q.pdf
+        True. You can always call recompute() to recreate self.pdf
         from scratch from the historical record.
 
         This was converted from the Psychtoolbox's QuestUpdate function."""
-        
+        # Normalize bool-like responses to integer indices for consistent NumPy behavior.
+        response = int(response)
         if response < 0 or response > self.s2.shape[0]:
             raise RuntimeError('response %g out of range 0 to %d'%(response,self.s2.shape[0]))
         if self.updatePdf:

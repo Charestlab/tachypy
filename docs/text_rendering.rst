@@ -30,3 +30,18 @@ Recommended usage
 - Use ``GLTextSDF`` when scalable text quality matters and shaping is simple.
 - The old Pillow texture-backed constructor is backbenched as
   ``tachypy.text.LegacyText`` for compatibility.
+
+HiDPI and Retina displays
+--------------------------
+
+On Retina displays the framebuffer has more physical pixels than logical pixels.
+Pass ``screen.content_scale`` so FreeType rasterizes at the correct physical
+resolution — otherwise text appears blurry.
+
+.. code-block:: python
+
+    label = Text("Hello", content_scale=screen.content_scale)
+
+.. image:: _static/content_scale.png
+   :alt: content_scale=1 (blurry) vs content_scale=2 (sharp)
+   :align: center
