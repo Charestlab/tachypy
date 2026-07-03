@@ -388,18 +388,80 @@ class ResponseHandler:
         self._glfw.set_cursor_pos(self._window, float(x), float(y))
         self.mouse_position = (float(x), float(y))
 
-    def wait_for_keypress(self, keys=None, timeout=None, screen=None, time_reference_ns=None):
-        """Block until one of the listed keys is pressed, keeping the display alive."""
-        active_screen = screen if screen is not None else self.screen
+    def wait_for_keypress(self, 
+                          keys=None, 
+                          timeout=None,
+                          time_reference_ns=None,
+                          callback=None,
+                          callback_delay=None):
+        """Block until one of the listed keys is pressed, keeping the display alive.
+
+        Parameters
+        ----------
+        keys : sequence of str, optional
+            Keys to wait for (e.g. ``["z", "c"]``). If omitted, returns on any
+            tracked keydown event instead of a specific key.
+        timeout : float, optional
+            Maximum time to wait, in seconds.
+        time_reference_ns : int, optional
+            Timestamp in the ``time.monotonic_ns()`` domain -- e.g. the return
+            value of ``Screen.flip()`` -- to measure ``elapsed`` from, instead
+            of the moment this call starts.
+        callback : callable, optional
+            Zero-argument callable executed once, ``callback_delay`` seconds after
+            this call started (or after ``time_reference_ns``, if given) -- unless
+            a key is pressed before then, in which case it never fires. Does not
+            end the wait: after firing, polling continues normally until a key
+            is pressed, ``timeout`` elapses, or a quit is requested.
+        callback_delay : float, optional
+            Delay in seconds after which ``callback`` fires.
+
+        Returns
+        -------
+        tuple[str | None, float]
+            ``(key, elapsed)`` -- the normalized name of the key that was
+            pressed, or ``None`` on timeout or quit; and seconds elapsed
+            since the timing origin (``time_reference_ns``, or when this call
+            started if not given).
+
+        Raises
+        ------
+        ValueError
+            If ``callback`` is given without a positive ``callback_delay``.
+        RuntimeError
+            If ``callback`` raises an exception.
+
+        Examples
+        --------
+        Show a stimulus, then clear the screen to gray after a fixed 500 ms
+        viewing duration if no response has arrived yet. If the participant
+        responds within the first 500 ms, ``hide_stimulus`` never runs and
+        the stimulus simply stays on screen until the key is detected:
+
+        >>> ... # draw the stimulus
+        >>> screen.flip()
+        >>> def hide_stimulus():
+        ...     screen.fill([128, 128, 128])  # back to a plain gray screen
+        ...     screen.flip()
+        >>> key, rt = response_handler.wait_for_keypress(
+        ...     keys=["z", "c"], callback=hide_stimulus, callback_delay=0.5,
+        ... )
+        """
+        if callback is not None and (callback_delay is None or callback_delay <= 0):
+            raise ValueError("callback_delay must be > 0 when callback is provided.")
+
         self.clear_events()
         if keys is not None:
             for key in keys:
                 self._probed_keys.add(self._normalize_key_name(key))
 
         ref_ns = None
+        callback_done = False
+        first_iteration = True
         while True:
-            if active_screen is not None:
-                active_screen.flip()
+            if not first_iteration:
+                time.sleep(0.001)
+            first_iteration = False
 
             if ref_ns is None:
                 ref_ns = time_reference_ns if time_reference_ns is not None else time.monotonic_ns()
@@ -407,10 +469,15 @@ class ResponseHandler:
             self.get_events()
             elapsed = (time.monotonic_ns() - ref_ns) / 1e9
 
-            if self.should_quit():
-                return None, elapsed
-            if timeout is not None and elapsed >= timeout:
-                return None, elapsed
+            if callback is not None and not callback_done and elapsed >= callback_delay:
+                try:
+                    callback()
+                except Exception as e:
+                    raise RuntimeError("Timed callback failed.") from e
+                callback_done = True
+
+            # Honor keypresses detected in this polling cycle before applying quit 
+            # or timeout checks, preventing boundary events from being dropped.
             if keys is None:
                 if self.key_down_events:
                     return next(iter(self.key_down_events)), elapsed
@@ -418,6 +485,11 @@ class ResponseHandler:
                 for key in keys:
                     if self.was_key_pressed(key):
                         return self._normalize_key_name(key), elapsed
+
+            if self.should_quit():
+                return None, elapsed
+            if timeout is not None and elapsed >= timeout:
+                return None, elapsed
 
     def clear_events(self):
         """Clear tracked transition events while preserving held-state snapshots."""

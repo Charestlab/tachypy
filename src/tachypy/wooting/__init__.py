@@ -24,6 +24,7 @@ from tachypy.feedback import VisualPressureFeedbackMixin
 # Re-export the keyboard's public API so experiments need only one import.
 from tachywooting import (  # noqa: F401
     convert_char_to_keycode,
+    convert_keycode_to_char,
     ffi,
     lib,
     load_session,
@@ -45,6 +46,7 @@ class WOOTING_ACQUISITION(_tachywooting.WOOTING_ACQUISITION, VisualPressureFeedb
 __all__ = [
     "WOOTING_ACQUISITION",
     "convert_char_to_keycode",
+    "convert_keycode_to_char",
     "ffi",
     "lib",
     "load_session",

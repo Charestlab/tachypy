@@ -40,7 +40,8 @@ def install_fake_tachyaudio(monkeypatch):
     return fake
 
 
-def test_audio_play_validation_errors():
+def test_audio_play_validation_errors(monkeypatch):
+    install_fake_tachyaudio(monkeypatch)
     audio = Audio()
     with pytest.raises(ValueError, match="NumPy"):
         audio.play([1, 2, 3], when=0)

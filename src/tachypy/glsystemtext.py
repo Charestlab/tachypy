@@ -83,8 +83,40 @@ class GLSystemText:
         align: str = "center",
         vertical_align: str = "center",
         fallback_renderer: str = "bitmap",
+        content_scale: float = 1.0,
     ):
-        """Create a system-font text renderer with OpenGL quad drawing."""
+        """Create a system-font text renderer with OpenGL quad drawing.
+
+        Parameters
+        ----------
+        text : str
+            Text to render. Newlines (``\\n``) produce multi-line output.
+        dest_rect : tuple (x1, y1, x2, y2), optional
+            Bounding box in logical pixels (top-left origin). Text is laid
+            out and word-wrapped within this rectangle. If omitted, text
+            starts at the origin with no wrapping.
+        font_name : str
+            Family name (``"Helvetica"``), comma-separated fallback list
+            (``"Avenir, Helvetica, Arial"``), or an absolute font file path.
+        font_size : float
+            Size in logical points.
+        color : sequence of 3 ints
+            RGB color in the 0–255 range.
+        line_spacing : float
+            Line-height multiplier relative to the font's natural height.
+        align : str
+            Horizontal alignment within ``dest_rect``: ``"left"``,
+            ``"center"``, or ``"right"``.
+        vertical_align : str
+            Vertical alignment within ``dest_rect``: ``"top"``,
+            ``"center"``, or ``"bottom"``.
+        fallback_renderer : str
+            Renderer used when FreeType/HarfBuzz are unavailable:
+            ``"bitmap"`` (default) or ``"sdf"``.
+        content_scale : float
+            Pass ``screen.content_scale`` to get sharp text on Retina/HiDPI
+            displays (e.g. 2.0); omit for standard displays.
+        """
         self.text = text
         self.dest_rect = dest_rect
         self.font_name = font_name
@@ -103,6 +135,7 @@ class GLSystemText:
         self._glyph_cache: Dict[int, _GlyphTexture] = {}
         self._line_height = float(font_size)
         self._ascender = float(font_size * 0.8)
+        self._content_scale = float(content_scale)
 
         if HAS_FREETYPE and HAS_HARFBUZZ:
             font_path = self.resolve_font_path(self.font_name)
@@ -165,6 +198,13 @@ class GLSystemText:
         normalized = re.sub(r"[^a-z0-9]+", " ", str(font_name).lower()).strip()
         return [part for part in normalized.split() if part]
 
+    # Style qualifiers penalized in resolve_font_path() unless requested.
+    _STYLE_WORDS = {
+        "italic", "oblique", "bold", "narrow", "condensed", "black", "light",
+        "medium", "semibold", "semilight", "thin", "heavy", "extrabold",
+        "ultra", "expanded", "book", "regular",
+    }
+
     @classmethod
     def resolve_font_path(cls, font_name: str) -> Optional[Path]:
         """Resolve a system font from a family/path query.
@@ -173,6 +213,13 @@ class GLSystemText:
         - absolute/relative font file paths
         - comma-separated fallback font families (e.g. "Avenir, Helvetica, Arial")
         - partial family/style matching against system font file names
+
+        Style words (e.g. "Bold", "Italic") in the query are matched against
+        the font file, but unrequested style words present in a candidate's
+        file name are penalized so a plain query like "Arial" prefers the
+        regular weight over "Arial Narrow Italic". An exact family match
+        (e.g. "Arial" -> "Arial.ttf") is also preferred over a candidate with
+        extra qualifiers (e.g. "Arial Unicode").
         """
         if not font_name:
             return None
@@ -193,25 +240,31 @@ class GLSystemText:
             tokens = cls._tokenize_font_query(query)
             if not tokens:
                 continue
-            best_score = -1
-            best_path = None
+            requested_styles = set(tokens) & cls._STYLE_WORDS
+
+            # Rank by relevance, then by style/exactness (see docstring).
+            scored = []
             for path in candidates:
                 stem_tokens = cls._tokenize_font_query(path.stem)
                 stem_joined = " ".join(stem_tokens)
 
-                score = 0
+                relevance = 0
                 for token in tokens:
                     if token in stem_tokens:
-                        score += 3
+                        relevance += 3
                     elif token in stem_joined:
-                        score += 1
+                        relevance += 1
 
-                if score > best_score:
-                    best_score = score
-                    best_path = path
+                if relevance <= 0:
+                    continue
 
-            if best_score > 0 and best_path is not None:
-                return best_path
+                unrequested_styles = (set(stem_tokens) & cls._STYLE_WORDS) - requested_styles
+                exact_match = set(stem_tokens) == set(tokens)
+                scored.append((relevance, -len(unrequested_styles), exact_match, path))
+
+            if scored:
+                scored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+                return scored[0][3]
 
         # Last-resort defaults.
         for fallback in (
@@ -231,16 +284,18 @@ class GLSystemText:
 
     def _init_system_font(self, font_path: Path) -> None:
         """Initialize FreeType face and HarfBuzz font from a font file."""
+        physical_size = int(self.font_size * self._content_scale * 64)
+
         self._font_bytes = font_path.read_bytes()
         self._face = freetype.Face(str(font_path))
-        self._face.set_char_size(int(self.font_size * 64))
+        self._face.set_char_size(physical_size)
 
         self._hb_font = hb.Font(hb.Face(self._font_bytes))
-        self._hb_font.scale = (int(self.font_size * 64), int(self.font_size * 64))
+        self._hb_font.scale = (physical_size, physical_size)
 
         metrics = self._face.size
-        self._line_height = max(1.0, float(metrics.height) / 64.0) * self.line_spacing
-        self._ascender = float(metrics.ascender) / 64.0
+        self._line_height = max(1.0, float(metrics.height) / 64.0 / self._content_scale) * self.line_spacing
+        self._ascender = float(metrics.ascender) / 64.0 / self._content_scale
 
     def _shape(self, text: str):
         """Shape a string into glyph indices and positions via HarfBuzz."""
@@ -299,8 +354,37 @@ class GLSystemText:
         pen_x = 0.0
         for info, pos in zip(infos, positions):
             _ = info
-            pen_x += float(pos.x_advance) / 64.0
+            pen_x += float(pos.x_advance) / 64.0 / self._content_scale
         return pen_x
+
+    def _line_bounds(self, line: str) -> Tuple[float, float, float]:
+        """Return the rendered line bounds as (width, top, bottom)."""
+        if line == "":
+            return 0.0, 0.0, 0.0
+
+        # Use actual glyph extents so descenders do not get vertically clipped.
+        infos, positions = self._shape(line)
+        scale = self._content_scale
+        pen_x = 0.0
+        max_x = 0.0
+        top = 0.0
+        bottom = 0.0
+
+        for info, pos in zip(infos, positions):
+            glyph = self._glyph_texture(info.codepoint)
+            x_offset = float(pos.x_offset) / 64.0 / scale
+            y_offset = float(pos.y_offset) / 64.0 / scale
+
+            glyph_x = pen_x + x_offset + glyph.bearing_x / scale
+            glyph_top = -glyph.bearing_y / scale - y_offset
+            glyph_bottom = glyph_top + glyph.height / scale
+
+            max_x = max(max_x, glyph_x + glyph.width / scale)
+            top = min(top, glyph_top)
+            bottom = max(bottom, glyph_bottom)
+            pen_x += float(pos.x_advance) / 64.0 / scale
+
+        return max(max_x, pen_x), top, bottom
 
     def _split_lines(self) -> List[str]:
         """Wrap text lines to the destination rectangle width when provided."""
@@ -348,23 +432,26 @@ class GLSystemText:
             return
 
         lines = self._split_lines()
-        line_widths = [self._measure_line(line) for line in lines]
-        total_height = max(1.0, len(lines) * self._line_height)
+        line_bounds = [self._line_bounds(line) for line in lines]
+        line_widths = [bounds[0] for bounds in line_bounds]
+        block_top = min((i * self._line_height + top for i, (_, top, _) in enumerate(line_bounds)), default=0.0)
+        block_bottom = max((i * self._line_height + bottom for i, (_, _, bottom) in enumerate(line_bounds)), default=0.0)
+        total_height = max(1.0, block_bottom - block_top)
 
         if self.dest_rect:
             x1, y1, x2, y2 = self.dest_rect
             rect_w = float(x2 - x1)
             rect_h = float(y2 - y1)
             if self.vertical_align == "top":
-                baseline0 = y1 + self._ascender
+                baseline0 = y1 - block_top
             elif self.vertical_align == "bottom":
-                baseline0 = y1 + rect_h - total_height + self._ascender
+                baseline0 = y1 + rect_h - total_height - block_top
             else:
-                baseline0 = y1 + (rect_h - total_height) / 2.0 + self._ascender
+                baseline0 = y1 + (rect_h - total_height) / 2.0 - block_top
         else:
             x1 = 0.0
             rect_w = max(line_widths) if line_widths else 0.0
-            baseline0 = self._ascender
+            baseline0 = -block_top
 
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -373,6 +460,11 @@ class GLSystemText:
 
         baseline = baseline0
         for line, line_w in zip(lines, line_widths):
+            if line == "":
+                # Handle empty lines (e.g., "\n\n")
+                baseline += self._line_height
+                continue
+
             if self.dest_rect:
                 if self.align == "left":
                     pen_x = x1
@@ -384,16 +476,20 @@ class GLSystemText:
                 pen_x = x1
 
             infos, positions = self._shape(line)
+            scale = self._content_scale
+            # Align glyph quads to physical pixels to avoid interpolation blur.
+            snap = (lambda value: round(value * scale) / scale) if scale > 0 else (lambda value: value)
             for info, pos in zip(infos, positions):
                 glyph = self._glyph_texture(info.codepoint)
 
-                x_offset = float(pos.x_offset) / 64.0
-                y_offset = float(pos.y_offset) / 64.0
+                x_offset = float(pos.x_offset) / 64.0 / scale
+                y_offset = float(pos.y_offset) / 64.0 / scale
 
-                x = pen_x + x_offset + glyph.bearing_x
-                y = baseline - glyph.bearing_y - y_offset
-                x2 = x + glyph.width
-                y2 = y + glyph.height
+                x = pen_x + x_offset + glyph.bearing_x / scale
+                y = baseline - glyph.bearing_y / scale - y_offset
+                x2 = x + glyph.width / scale
+                y2 = y + glyph.height / scale
+                x, y, x2, y2 = (snap(value) for value in (x, y, x2, y2))
 
                 glBindTexture(GL_TEXTURE_2D, glyph.texture_id)
                 glBegin(GL_QUADS)
@@ -408,7 +504,7 @@ class GLSystemText:
                 glVertex2f(x, y2)
                 glEnd()
 
-                pen_x += float(pos.x_advance) / 64.0
+                pen_x += float(pos.x_advance) / 64.0 / scale
 
             baseline += self._line_height
 

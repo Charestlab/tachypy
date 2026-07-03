@@ -1,7 +1,14 @@
 import numpy as np
 import pytest
 
+import tachypy.audio as audio_module
 from tachypy.audio import Audio
+
+_FAKE_TACHYAUDIO = type("FakeTachyAudio", (), {})()
+
+
+def _patch_tachyaudio(monkeypatch):
+    monkeypatch.setattr(audio_module, "tachyaudio", _FAKE_TACHYAUDIO)
 
 
 def test_sleep_duration_for_remaining_ns_thresholds():
@@ -12,6 +19,7 @@ def test_sleep_duration_for_remaining_ns_thresholds():
 
 
 def test_play_expands_mono_data_to_requested_channels(monkeypatch):
+    _patch_tachyaudio(monkeypatch)
     captured = {}
 
     def fake_playback(self, data, delay):
@@ -34,14 +42,15 @@ def test_play_expands_mono_data_to_requested_channels(monkeypatch):
     audio = Audio(sample_rate=44_100, channels=2)
     mono = np.array([0.1, -0.1, 0.2], dtype=np.float64)
 
-    audio.play(mono, when=1.0)
+    audio.play(mono, when=2.0)
 
     assert captured["shape"] == (3, 2)
     assert captured["dtype"] == np.float32
     assert captured["delay"] == 0
 
 
-def test_play_raises_for_wrong_channel_count():
+def test_play_raises_for_wrong_channel_count(monkeypatch):
+    _patch_tachyaudio(monkeypatch)
     audio = Audio(channels=2)
     stereo = np.array([[0.1], [0.2]], dtype=np.float32)
 
@@ -55,6 +64,7 @@ def test_invalid_backend_raises():
 
 
 def test_backend_env_accepts_auto(monkeypatch):
+    _patch_tachyaudio(monkeypatch)
     monkeypatch.setenv("TACHYPY_AUDIO_BACKEND", "auto")
     audio = Audio()
     assert audio.backend_name == "tachyaudio"

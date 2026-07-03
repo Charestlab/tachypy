@@ -100,7 +100,7 @@ def main() -> int:
             screen.flip()
 
             hier = acq.acquire_analog_values(target_keys=[YES_KEY, NO_KEY])
-            response = acq.get_response_key(hier, target_keys=[YES_KEY, NO_KEY])
+            response, _rt = acq.get_response_key(hier)
 
             is_correct = response == (yes_code if is_white else no_code)
             had_removal = acq.last_trial_had_removal

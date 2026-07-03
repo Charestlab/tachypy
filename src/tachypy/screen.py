@@ -71,6 +71,7 @@ class Screen:
         self.screen = None
         self._glfw = None
         self._glfw_window = None
+        self.content_scale: float = 1.0
 
         self._init_glfw_backend(screen_number)
         self._init_opengl_state()
@@ -326,6 +327,7 @@ class Screen:
 
         # Always keep viewport in framebuffer pixels (HiDPI-safe).
         glViewport(0, 0, int(fb_w), int(fb_h))
+        self.content_scale = float(fb_h) / float(win_h) if win_h > 0 else 1.0
 
         if logical_changed:
             # Use TachyPy's top-left logical origin convention.
