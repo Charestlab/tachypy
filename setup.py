@@ -9,7 +9,7 @@ with open('requirements.txt') as reqfile:
 
 setup(
     name='tachypy',
-    version='0.1.17',
+    version='0.1.19',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=requires,
@@ -19,7 +19,7 @@ setup(
         'system_text': ['freetype-py>=2.4', 'uharfbuzz>=0.39'],
         'glfw': ['glfw>=2.7'],
         'audio': [],
-        'wooting': ['tachywooting>=0.2.1'],
+        'wooting': ['tachywooting>=0.2.2'],
     },
     python_requires='>=3.10',
     author='Ian Charest, Mathias Salvas-Hebert and Frederic Gosselin',

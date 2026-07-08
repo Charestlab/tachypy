@@ -485,11 +485,10 @@ class GLSystemText:
                 x_offset = float(pos.x_offset) / 64.0 / scale
                 y_offset = float(pos.y_offset) / 64.0 / scale
 
-                x = pen_x + x_offset + glyph.bearing_x / scale
-                y = baseline - glyph.bearing_y / scale - y_offset
+                x = snap(pen_x + x_offset + glyph.bearing_x / scale)
+                y = snap(baseline - glyph.bearing_y / scale - y_offset)
                 x2 = x + glyph.width / scale
                 y2 = y + glyph.height / scale
-                x, y, x2, y2 = (snap(value) for value in (x, y, x2, y2))
 
                 glBindTexture(GL_TEXTURE_2D, glyph.texture_id)
                 glBegin(GL_QUADS)
