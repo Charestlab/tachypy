@@ -32,6 +32,9 @@ Core modules
 .. automodule:: tachypy.glsystemtext
    :members:
 
+.. automodule:: tachypy.scrollbar
+   :members:
+
 .. automodule:: tachypy.psychophysics
    :members:
 

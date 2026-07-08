@@ -76,8 +76,7 @@ def test_resolve_font_path_uses_best_token_match(monkeypatch):
 
 
 def test_resolve_font_path_prefers_regular_over_unrequested_style_variants(monkeypatch):
-    # Regression test: a plain family query must not resolve to a styled
-    # variant just because it happens to be scored/iterated first.
+    # A plain family query resolves to the regular variant, not bold/italic.
     fake_fonts = [
         Path("/tmp/Arial Narrow Italic.ttf"),
         Path("/tmp/Arial Bold Italic.ttf"),
@@ -93,10 +92,7 @@ def test_resolve_font_path_prefers_regular_over_unrequested_style_variants(monke
 
 
 def test_draw_skips_blank_lines_without_crashing(monkeypatch):
-    # Regression test: a blank line (e.g. from "\n\n" in the source text, or
-    # from word-wrapping) makes HarfBuzz return glyph_positions=None for the
-    # empty buffer (no script could be guessed), which used to crash
-    # zip(infos, positions) in draw().
+    # draw() handles a blank line (from "\n\n" or word-wrap) without crashing.
     pytest.importorskip("freetype")
     pytest.importorskip("uharfbuzz")
 
@@ -115,12 +111,11 @@ def test_draw_skips_blank_lines_without_crashing(monkeypatch):
     for gl_func in ("glEnable", "glDisable", "glBlendFunc", "glColor3f", "glBindTexture", "glBegin", "glEnd", "glTexCoord2f", "glVertex2f"):
         monkeypatch.setattr(glsys_module, gl_func, noop)
 
-    text.draw()  # must not raise
+    text.draw()
 
 
 def test_draw_centers_actual_glyph_bounds_in_dest_rect(monkeypatch):
-    # Regression test for descenders/bottom-heavy glyphs: vertical alignment
-    # must use the rendered glyph bounds, not only ascender/line-height metrics.
+    # Vertical centering uses the glyph's rendered bounds, not just ascender/line-height metrics.
     text = GLSystemText(
         "g",
         dest_rect=[0, 0, 100, 10],
@@ -158,7 +153,43 @@ def test_draw_centers_actual_glyph_bounds_in_dest_rect(monkeypatch):
 
     x_values = [x for x, _ in vertices]
     y_values = [y for _, y in vertices]
+    # Quad width matches the glyph's own bitmap size, not independently rounded edges.
     assert min(x_values) == pytest.approx(46.0)
-    assert max(x_values) == pytest.approx(54.0)
+    assert max(x_values) == pytest.approx(55.0)
+    assert max(x_values) - min(x_values) == pytest.approx(fake_glyph.width)
     assert min(y_values) == pytest.approx(0.0)
     assert max(y_values) == pytest.approx(10.0)
+
+
+def test_draw_preserves_glyph_width_across_half_pixel_boundary(monkeypatch):
+    # Glyph width stays constant regardless of subpixel pen position.
+    text = GLSystemText("i", dest_rect=[0, 0, 100, 10], font_size=10.0)
+    text._enabled = True
+    text._fallback = None
+    text._content_scale = 1.0
+    text._line_height = 10.0
+    text._ascender = 8.0
+
+    fake_glyph = glsys_module._GlyphTexture(
+        texture_id=0, width=3, height=10, bearing_x=0.0, bearing_y=5.0,
+    )
+    monkeypatch.setattr(text, "_glyph_texture", lambda codepoint: fake_glyph)
+
+    noop = lambda *args, **kwargs: None
+    for gl_func in ("glEnable", "glDisable", "glBlendFunc", "glColor3f", "glBindTexture", "glBegin", "glEnd", "glTexCoord2f"):
+        monkeypatch.setattr(glsys_module, gl_func, noop)
+
+    # Sweep pen position across a full pixel to cover every subpixel offset.
+    for offset in [i / 10.0 for i in range(11)]:
+        fake_info = SimpleNamespace(codepoint=1)
+        fake_pos = SimpleNamespace(x_advance=3 * 64, x_offset=int(offset * 64), y_offset=0)
+        monkeypatch.setattr(text, "_shape", lambda line, fp=fake_pos, fi=fake_info: ([fi], [fp]))
+
+        vertices = []
+        monkeypatch.setattr(glsys_module, "glVertex2f", lambda x, y: vertices.append((x, y)))
+
+        text.draw()
+
+        x_values = [x for x, _ in vertices]
+        width = max(x_values) - min(x_values)
+        assert width == pytest.approx(fake_glyph.width), f"offset={offset} width={width}"

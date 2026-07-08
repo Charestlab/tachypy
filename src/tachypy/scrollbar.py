@@ -1,4 +1,4 @@
-"""Scrollbar widget for continuous responses (0..100 by default)."""
+"""Scrollbar widget for continuous response (0..100 range by default)."""
 
 from typing import Sequence, Tuple
 
@@ -9,7 +9,62 @@ from tachypy.text import Text
 
 
 class Scrollbar:
-    """Drawable scrollbar widget with a draggable indicator and 0..100 mapping."""
+    """Draw a scrollbar with a movable marker and configurable mouse behavior.
+
+    Parameters
+    ----------
+    screen_width, screen_height : float
+        Size of the display area used to place the scrollbar.
+    position_y : float
+        Vertical position of the bar and marker in screen coordinates.
+    half_bar_length : float
+        Half the horizontal length of the bar.
+    bar_thickness, mark_thickness, end_thickness : float
+        Thickness of the main bar, tick marks, and end markers.
+    bar_color, mark_color, end_color : sequence of float
+        Colors used for the bar, marks, and ends.
+    half_mark_height : float
+        Half the height of each tick mark.
+    num_marks : int
+        Number of tick marks drawn along the bar.
+    half_end_height : float
+        Half the height of the left and right end markers.
+    text_left, text_right : str
+        Labels displayed at each end of the scrollbar.
+    font_size : int
+        Font size used for the end labels.
+    font_name : str
+        Font name used for the labels.
+    text_color : sequence of float
+        Color of the labels.
+    text_offset : float
+        Vertical offset for the labels above the bar.
+    limit_mouse : bool
+        When True, the marker only updates when the mouse stays near the bar's
+        horizontal line. Set to False to allow interaction even when the cursor
+        is farther away vertically.
+    content_scale : float
+        Pass ``screen.content_scale`` to get sharp end labels on Retina/HiDPI
+        screens.
+
+    Example
+    -------
+    >>> scrollbar = Scrollbar(screen_width=screen.width, screen_height=screen.height, content_scale=screen.content_scale)
+    >>> value = None
+    >>> response_handler.clear_events()
+    >>> while value is None:
+    ...     response_handler.get_events()
+    ...     mouse_x, mouse_y = response_handler.get_mouse_position()
+    ...     scrollbar.handle_mouse(mouse_x, mouse_y)
+    ...     screen.fill((127, 127, 127))
+    ...     scrollbar.draw()
+    ...     screen.flip()
+    ...     for click in response_handler.get_mouse_clicks():
+    ...         if click["type"] == "mouseup":
+    ...             value = scrollbar.get_value()
+    True
+    False
+    """
 
     def __init__(
         self,
@@ -31,9 +86,11 @@ class Scrollbar:
         font_size: int = 24,
         font_name: str = "Helvetica",
         text_color: Sequence[float] = (0, 0, 0),
-        text_offset: float = 12,
+        text_offset: float = 24,
+        limit_mouse: bool = False,
+        content_scale: float = 1.0,
     ):
-        """Initialize scrollbar geometry, labels, and marker state."""
+        """Create the bar, ticks, labels, and movable marker for the scrollbar."""
         self.screen_width = float(screen_width)
         self.screen_height = float(screen_height)
         self.position_y = float(position_y)
@@ -53,6 +110,8 @@ class Scrollbar:
         self.font_name = font_name
         self.text_color = text_color
         self.text_offset = float(text_offset)
+        self.limit_mouse = bool(limit_mouse)
+        self.content_scale = float(content_scale)
 
         self.center_x = self.screen_width / 2
 
@@ -106,6 +165,7 @@ class Scrollbar:
             font_size=self.text_size,
             color=self.text_color,
             dest_rect=left_text_pos,
+            content_scale=self.content_scale,
         )
         self.text_right_label = Text(
             text=self.text_right,
@@ -113,6 +173,7 @@ class Scrollbar:
             font_size=self.text_size,
             color=self.text_color,
             dest_rect=right_text_pos,
+            content_scale=self.content_scale,
         )
 
         self.half_mobile_line_height = 12
@@ -153,8 +214,8 @@ class Scrollbar:
         self.mobile_line.draw()
 
     def handle_mouse(self, mouse_x: float, mouse_y: float) -> bool:
-        """Update mobile line from mouse position. Returns True if moved."""
-        if abs(mouse_y - self.position_y) > self.half_end_height * 2:
+        """Move the marker to the given mouse x-position and return True when it changes."""
+        if self.limit_mouse and abs(mouse_y - self.position_y) > self.half_end_height * 2:
             return False
 
         new_x = float(np.clip(mouse_x, self.min_x, self.max_x))

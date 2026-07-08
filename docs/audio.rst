@@ -52,7 +52,7 @@ The retained ``backend`` argument accepts only ``None``, ``"auto"``, or
 Installation
 ------------
 
-The base TachyPy install depends on ``tachyaudio>=0.2.0b1``. In most cases, pip
+The base TachyPy install depends on ``tachyaudio>=0.2.0b2``. In most cases, pip
 can resolve this dependency without enabling global pre-release selection:
 
 .. code-block:: bash
