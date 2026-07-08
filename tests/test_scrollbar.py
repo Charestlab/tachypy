@@ -36,6 +36,8 @@ class FakeResponseHandler:
 
     def get_events(self):
         self.calls += 1
+        if self.calls > 50:
+            raise AssertionError("loop did not terminate after a mouseup was available")
 
     def get_mouse_position(self):
         return (300, 200)

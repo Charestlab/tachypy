@@ -53,6 +53,7 @@ class Scrollbar:
     >>> value = None
     >>> response_handler.clear_events()
     >>> while value is None:
+    ...     response_handler.get_events()
     ...     mouse_x, mouse_y = response_handler.get_mouse_position()
     ...     scrollbar.handle_mouse(mouse_x, mouse_y)
     ...     screen.fill((127, 127, 127))

@@ -284,7 +284,7 @@ class GLSystemText:
 
     def _init_system_font(self, font_path: Path) -> None:
         """Initialize FreeType face and HarfBuzz font from a font file."""
-        physical_size = int(self.font_size * self._content_scale * 64)
+        physical_size = max(1, round(self.font_size * self._content_scale * 64))
 
         self._font_bytes = font_path.read_bytes()
         self._face = freetype.Face(str(font_path))
@@ -296,6 +296,17 @@ class GLSystemText:
         metrics = self._face.size
         self._line_height = max(1.0, float(metrics.height) / 64.0 / self._content_scale) * self.line_spacing
         self._ascender = float(metrics.ascender) / 64.0 / self._content_scale
+
+    def _scaled_26_6(self, value: float) -> float:
+        """Convert HarfBuzz/FreeType 26.6 units to TachyPy logical pixels.
+
+        "26.6" is fixed-point notation: the last 6 bits are fractional, so
+        HarfBuzz/FreeType store 64 units for each physical framebuffer pixel.
+        Rounding before dividing by ``content_scale`` keeps glyph advances on
+        the real display pixel grid, while TachyPy still draws in logical
+        coordinates.
+        """
+        return round(float(value) / 64.0) / self._content_scale
 
     def _shape(self, text: str):
         """Shape a string into glyph indices and positions via HarfBuzz."""
@@ -354,7 +365,7 @@ class GLSystemText:
         pen_x = 0.0
         for info, pos in zip(infos, positions):
             _ = info
-            pen_x += float(pos.x_advance) / 64.0 / self._content_scale
+            pen_x += self._scaled_26_6(pos.x_advance)
         return pen_x
 
     def _line_bounds(self, line: str) -> Tuple[float, float, float]:
@@ -372,8 +383,8 @@ class GLSystemText:
 
         for info, pos in zip(infos, positions):
             glyph = self._glyph_texture(info.codepoint)
-            x_offset = float(pos.x_offset) / 64.0 / scale
-            y_offset = float(pos.y_offset) / 64.0 / scale
+            x_offset = self._scaled_26_6(pos.x_offset)
+            y_offset = self._scaled_26_6(pos.y_offset)
 
             glyph_x = pen_x + x_offset + glyph.bearing_x / scale
             glyph_top = -glyph.bearing_y / scale - y_offset
@@ -382,7 +393,7 @@ class GLSystemText:
             max_x = max(max_x, glyph_x + glyph.width / scale)
             top = min(top, glyph_top)
             bottom = max(bottom, glyph_bottom)
-            pen_x += float(pos.x_advance) / 64.0 / scale
+            pen_x += self._scaled_26_6(pos.x_advance)
 
         return max(max_x, pen_x), top, bottom
 
@@ -477,16 +488,18 @@ class GLSystemText:
 
             infos, positions = self._shape(line)
             scale = self._content_scale
-            # Align glyph quads to physical pixels to avoid interpolation blur.
+            # Start on a physical pixel; _scaled_26_6 keeps each advance there too.
             snap = (lambda value: round(value * scale) / scale) if scale > 0 else (lambda value: value)
+            pen_x = snap(pen_x)
+            baseline = snap(baseline)
             for info, pos in zip(infos, positions):
                 glyph = self._glyph_texture(info.codepoint)
 
-                x_offset = float(pos.x_offset) / 64.0 / scale
-                y_offset = float(pos.y_offset) / 64.0 / scale
+                x_offset = self._scaled_26_6(pos.x_offset)
+                y_offset = self._scaled_26_6(pos.y_offset)
 
-                x = snap(pen_x + x_offset + glyph.bearing_x / scale)
-                y = snap(baseline - glyph.bearing_y / scale - y_offset)
+                x = pen_x + x_offset + glyph.bearing_x / scale
+                y = baseline - glyph.bearing_y / scale - y_offset
                 x2 = x + glyph.width / scale
                 y2 = y + glyph.height / scale
 
@@ -503,7 +516,7 @@ class GLSystemText:
                 glVertex2f(x, y2)
                 glEnd()
 
-                pen_x += float(pos.x_advance) / 64.0 / scale
+                pen_x += self._scaled_26_6(pos.x_advance)
 
             baseline += self._line_height
 
