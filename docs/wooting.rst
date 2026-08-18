@@ -226,7 +226,7 @@ The controls are:
 
 Use any three distinct analog keys by passing ``decrease_key``, ``increase_key``
 and ``confirm_key``. TachyPy validates their Wooting analog mappings before the
-loop starts.
+loop starts and raises if a configured key is unavailable.
 
 .. code-block:: python
 

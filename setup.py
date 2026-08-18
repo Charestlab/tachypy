@@ -18,7 +18,7 @@ setup(
         'system_text': ['freetype-py>=2.4', 'uharfbuzz>=0.39'],
         'glfw': ['glfw>=2.7'],
         'audio': [],
-        'wooting': ['tachywooting>=0.2.2'],
+        'wooting': ['tachywooting>=0.2.4'],
     },
     python_requires='>=3.10',
     author='Ian Charest, Mathias Salvas-Hebert and Frederic Gosselin',

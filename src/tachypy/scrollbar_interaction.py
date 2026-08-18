@@ -62,9 +62,9 @@ class AnalogSliderMixin:
 
     The host object must implement ``read_pressures(keys)`` and return a mapping
     from each requested key to a normalized pressure. If it implements
-    ``validate_analog_keys(keys)``, that method is called before the loop starts;
-    ``WOOTING_ACQUISITION`` uses it to verify that all three keys are available
-    as analog keys on the connected Wooting keyboard.
+    ``validate_analog_keys(keys)``, that method is called before the loop starts.
+    The Wooting implementation raises for an unmapped key, before any response
+    is collected.
 
     The mixin does not draw or replace the scrollbar. Pass any configured
     :class:`tachypy.scrollbar.Scrollbar` instance to :meth:`interact_slider`.
@@ -111,8 +111,8 @@ class AnalogSliderMixin:
             window close and ``Escape`` can abort the interaction.
         decrease_key, increase_key, confirm_key : str or int, optional
             The three analog keys. Defaults to ``Z``, ``C``, and ``X``. They
-            must be distinct, non-empty, and valid analog keys when the host
-            provides ``validate_analog_keys``.
+            must be distinct, non-empty, and valid analog keys. A Wooting host
+            raises before the loop if a key is not mapped as analog.
         **kwargs
             Options forwarded to :func:`run_slider_interaction`, including
             ``input_mode``, ``drawables``, ``initial_value``,
