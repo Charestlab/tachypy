@@ -41,6 +41,7 @@ setup(
             'tachypy-clock-demo=tachypy.examples.clock_timer_demo:main',
             'tachypy-wooting-fixation-demo=tachypy.wooting.demos.visual_fixation_demo:main',
             'tachypy-wooting-mini-bw=tachypy.wooting.demos.mini_bw_experiment:main',
+            'tachypy-wooting-slider-demo=tachypy.wooting.demos.slider_demo:main',
         ],
     },
 )

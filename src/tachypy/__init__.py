@@ -46,6 +46,8 @@ __all__ = [
     "PressureFeedbackConfig",
     "PressureSource",
     "VisualPressureFeedbackMixin",
+    "AnalogSliderMixin",
+    "run_slider_interaction",
 ]
 
 
@@ -93,6 +95,8 @@ _EXPORT_MAP = {
     "PressureFeedbackConfig": ("tachypy.feedback", "PressureFeedbackConfig"),
     "PressureSource": ("tachypy.feedback", "PressureSource"),
     "VisualPressureFeedbackMixin": ("tachypy.feedback", "VisualPressureFeedbackMixin"),
+    "AnalogSliderMixin": ("tachypy.scrollbar_interaction", "AnalogSliderMixin"),
+    "run_slider_interaction": ("tachypy.scrollbar_interaction", "run_slider_interaction"),
     # Wooting keyboard integration — convenience shortcut for the one distinctive,
     # high-frequency entry point: `from tachypy import WOOTING_ACQUISITION`.
     # Resolved lazily from the `tachypy.wooting` facade, which requires the

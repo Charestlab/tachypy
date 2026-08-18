@@ -29,12 +29,6 @@ Use ``Esc`` to quit, click ``START``/``STOP``/``RESET``, or use ``Space`` and
 
    tachypy-clock-demo --windowed
 
-Run the default demo:
-
-.. code-block:: bash
-
-   python example_tachypy.py
-
 Notes
 -----
 

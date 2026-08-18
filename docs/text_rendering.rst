@@ -28,7 +28,7 @@ Recommended usage
 - Use ``Text`` for high-quality instruction screens and overlays.
 - Use ``GLSystemText`` only when you want the explicit historical class name.
 - Use ``GLTextSDF`` when scalable text quality matters and shaping is simple.
-- The old Pillow texture-backed constructor is backbenched as
+- The old Pillow texture-backed constructor is retained as
   ``tachypy.text.LegacyText`` for compatibility.
 
 HiDPI and Retina displays

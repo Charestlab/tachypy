@@ -248,6 +248,9 @@ class VisualPressureFeedbackMixin:
         target_keys = list(target_keys)
         if len(target_keys) != 2:
             raise ValueError("wait_light_press_visual requires exactly two target keys")
+        validate = getattr(self, "validate_analog_keys", None)
+        if callable(validate):
+            validate(target_keys)
 
         if widget is not None:
             conflicting = [

@@ -35,6 +35,12 @@ Core modules
 .. automodule:: tachypy.scrollbar
    :members:
 
+Scrollbar interaction
+---------------------
+
+.. automodule:: tachypy.scrollbar_interaction
+   :members:
+
 .. automodule:: tachypy.psychophysics
    :members:
 
