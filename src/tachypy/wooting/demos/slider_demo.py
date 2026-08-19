@@ -4,10 +4,9 @@ Run with ``python -m tachypy.wooting.demos.slider_demo`` or the installed
 ``tachypy-wooting-slider-demo`` command.
 
 The demo uses the TachyPy ``Scrollbar`` widget unchanged and adds interaction
-through ``WOOTING_ACQUISITION.interact_slider``. ``Z`` decreases the value,
-``C`` increases it, and ``X`` confirms it. The first two keys are pressure
-sensitive: a light press makes a fine adjustment, while a full press moves
-quickly. Press ``Escape`` to quit.
+through ``WOOTING_ACQUISITION.interact_slider`` in ``mouse_keyboard`` mode:
+the mouse or analog ``Z``/``C`` keys move the scrollbar, while a mouse click
+or ``X`` confirms it. Press ``Escape`` to quit.
 """
 from __future__ import annotations
 
@@ -18,7 +17,6 @@ except ImportError as exc:  # pragma: no cover
 
 
 N_TRIALS = 3
-BACKGROUND = (128, 128, 128)
 
 
 def main() -> int:
@@ -27,13 +25,7 @@ def main() -> int:
     try:
         acquisition.initialize_keyboard()
         screen = Screen(width=1100, height=650, fullscreen=False, grab_input=False)
-        screen.hide_mouse()
-        decrease_key, increase_key, confirm_key = "z", "c", "x"
-        instruction = (
-            f"{decrease_key.upper()} : DECREASE    "
-            f"{increase_key.upper()} : INCREASE    "
-            f"{confirm_key.upper()} : CONFIRM"
-        )
+        instruction = "MOUSE or Z/C : MOVE    CLICK or X : CONFIRM"
 
         slider = Scrollbar(
             screen_width=screen.width,
@@ -41,30 +33,24 @@ def main() -> int:
             position_y=screen.height / 2,
             half_bar_length=350,
             num_marks=11,
-            text_left="0",
-            text_right="100",
             content_scale=screen.content_scale,
         )
         message = Text(
             "",
             dest_rect=(60, 40, screen.width - 60, 180),
-            font_size=32,
             color=(0, 0, 0),
-            align="center",
-            vertical_align="center",
             content_scale=screen.content_scale,
         )
 
-        print(f"Keyboard controls: {instruction}. Press Escape to quit.")
+        print(f"Controls: {instruction}. Press Escape to quit.")
         for trial in range(1, N_TRIALS + 1):
             message.set_text(f"TRIAL {trial}/{N_TRIALS}\n{instruction}\nESCAPE : QUIT")
             value, reaction_time = acquisition.interact_slider(
                 slider=slider,
                 screen=screen,
                 drawables=(message,),
-                decrease_key=decrease_key,
-                increase_key=increase_key,
-                confirm_key=confirm_key,
+                input_mode="mouse_keyboard",
+                mouse_quiet_period=0.04,
             )
             if value is None:
                 print("Demo cancelled.")

@@ -103,7 +103,7 @@ class AnalogSliderMixin:
         slider : object
             TachyPy ``Scrollbar``-like object. It must expose ``set_value``,
             ``get_value``, and ``draw``. In ``mouse_keyboard`` mode it must also
-            expose ``handle_mouse``.
+            expose ``move_by(delta_x, mouse_y)``.
         screen : TachyPy Screen-like object
             Display surface exposing ``flip()`` and optionally ``fill(color)``.
         response_handler : ResponseHandler, optional
@@ -127,8 +127,8 @@ class AnalogSliderMixin:
         Notes
         -----
         In ``keyboard`` mode, movement pressure is sampled continuously. In
-        ``mouse_keyboard`` mode, the mouse controls the value and the confirm
-        key selects it; the keyboard movement keys are not used for movement.
+        ``mouse_keyboard`` mode, the mouse or the analog movement keys control
+        the value, and the confirm key or a mouse click selects it.
         """
         keys = tuple(str(key).strip().lower() for key in (decrease_key, increase_key, confirm_key))
         if not all(keys) or len(set(keys)) != 3:
@@ -199,20 +199,26 @@ def run_slider_interaction(
     slider : object
         Scrollbar-like widget exposing ``set_value(value)``, ``get_value()``,
         and ``draw()``. For ``mouse_keyboard`` it must also expose
-        ``handle_mouse(x, y)``. A normal TachyPy ``Scrollbar`` keeps all of its
-        visual and mouse customization.
+        ``move_by(delta_x, mouse_y)``. A normal TachyPy ``Scrollbar`` keeps all
+        of its visual and mouse customization.
     screen : TachyPy Screen-like object
         Must expose ``flip()``; if it exposes ``fill(color)``, the screen is
         cleared before each frame.
     response_handler : ResponseHandler-like object, optional
         Used for event polling, window-close/Escape detection, and mouse
         position in ``mouse_keyboard`` mode. It is optional in keyboard-only
-        mode, although supplying one enables quit handling.
+        mode, although supplying one enables quit handling. Mouse mode also
+        requires ``set_position`` for automatic edge recentering.
     input_mode : {"keyboard", "mouse_keyboard"}, default="keyboard"
         ``"keyboard"`` uses analog decrease/increase pressures for movement and
-        the confirm pressure for selection. ``"mouse_keyboard"`` uses the mouse
-        for movement and the confirm pressure for selection; the mouse must be
-        quiet for ``mouse_quiet_period`` before confirmation.
+        the confirm pressure for selection. ``"mouse_keyboard"`` accepts both
+        mouse or analog-key movement and either a left mouse click or the confirm
+        pressure for selection; the mouse must be quiet for
+        ``mouse_quiet_period`` before confirmation.
+        Any analog-key pressure above the deadzone temporarily gives the
+        keyboard exclusive control.
+        The hidden cursor is recentered horizontally when it reaches a screen
+        edge, so relative movement remains available in both directions.
     control_reader : callable
         Zero-argument callable returning ``SliderControls`` for the current
         frame. Values are expected in ``0.0``–``1.0``.
@@ -240,8 +246,9 @@ def run_slider_interaction(
         This prevents a key held from the previous trial from immediately
         moving or confirming the next one.
     mouse_quiet_period : float, default=0.08
-        In ``mouse_keyboard`` mode, required seconds without mouse movement
-        before confirmation is accepted.
+        Required seconds without mouse movement before mouse confirmation is
+        accepted. It is also used by ``mouse_keyboard`` mode before keyboard
+        confirmation.
     background_color : tuple, default=(128, 128, 128)
         RGB color used to clear the screen when ``fill`` is available.
     clock : callable, default=time.perf_counter
@@ -293,7 +300,14 @@ def run_slider_interaction(
     if control_reader is None:
         raise ValueError("control_reader is required")
     if input_mode == "mouse_keyboard" and response_handler is None:
-        raise ValueError("response_handler is required for mouse_keyboard mode")
+        raise ValueError("response_handler is required for mouse input")
+    if input_mode == "mouse_keyboard" and not hasattr(response_handler, "set_position"):
+        raise ValueError("mouse_keyboard mode requires response_handler.set_position")
+    if input_mode == "mouse_keyboard" and not hasattr(slider, "move_by"):
+        raise ValueError("mouse_keyboard mode requires slider.move_by(delta_x, mouse_y)")
+    mouse_was_visible = getattr(screen, "mouse_visible", None)
+    if input_mode == "mouse_keyboard" and hasattr(screen, "hide_mouse"):
+        screen.hide_mouse()
     if not 0 <= pressure_deadzone < 1 or pressure_gamma <= 0:
         raise ValueError("Invalid pressure mapping parameters")
     if not 0 <= release_threshold < confirm_threshold <= 1:
@@ -309,11 +323,10 @@ def run_slider_interaction(
             response_handler.reset_timer()
 
     slider.set_value(initial_value)
-    start = last = clock()
     previous_confirm = 0.0
     armed = False
     last_mouse_move = float("-inf")
-    next_tick = start
+    last_mouse_position = None
 
     def draw():
         if hasattr(screen, "fill"):
@@ -323,17 +336,41 @@ def run_slider_interaction(
             drawable.draw()
         screen.flip()
 
+    def finish(result):
+        if input_mode == "mouse_keyboard" and mouse_was_visible is not None:
+            (screen.show_mouse if mouse_was_visible else screen.hide_mouse)()
+        return result
+
+    draw()
+    start = last = clock()
+    next_tick = start
+
     while True:
         if response_handler is not None:
             response_handler.get_events()
             if response_handler.should_quit():
-                return None, None
+                return finish((None, None))
 
         now = clock()
         dt = min(max(0.0, now - last), 0.1)
         last = now
         controls = control_reader()
-        movement_active = input_mode == "keyboard" and max(controls.decrease, controls.increase) > pressure_deadzone
+        keyboard_active = max(controls.decrease, controls.increase, controls.confirm) > pressure_deadzone
+        movement_active = (
+            input_mode in ("keyboard", "mouse_keyboard")
+            and max(controls.decrease, controls.increase) > pressure_deadzone
+        )
+
+        mouse_position = None
+        mouse_moved = False
+        previous_mouse_position = None
+        if input_mode == "mouse_keyboard":
+            mouse_position = response_handler.get_mouse_position()
+            previous_mouse_position = last_mouse_position
+            mouse_moved = previous_mouse_position is not None and mouse_position != previous_mouse_position
+            if mouse_moved:
+                last_mouse_move = now
+            last_mouse_position = mouse_position
 
         if not armed:
             armed = max(controls.decrease, controls.increase, controls.confirm) < release_threshold
@@ -344,22 +381,36 @@ def run_slider_interaction(
                 wait_until(next_tick)
                 continue
 
-        if input_mode == "mouse_keyboard":
-            position = response_handler.get_mouse_position() if response_handler is not None else None
-            moved = position is not None and slider.handle_mouse(*position)
-            if moved:
+        if input_mode == "mouse_keyboard" and mouse_moved:
+            if not keyboard_active:
+                delta_x = mouse_position[0] - previous_mouse_position[0]
+                slider.move_by(delta_x, mouse_position[1])
+            if hasattr(screen, "width") and (
+                    mouse_position[0] <= 1 or mouse_position[0] >= screen.width - 1):
+                center = (screen.width / 2, mouse_position[1])
+                response_handler.set_position(*center)
+                last_mouse_position = center
                 last_mouse_move = now
-        elif movement_active:
+
+        if movement_active:
             direction = _effective_pressure(controls.increase, pressure_deadzone, pressure_gamma)
             direction -= _effective_pressure(controls.decrease, pressure_deadzone, pressure_gamma)
             slider.set_value(slider.get_value() + movement_speed * direction * dt)
 
+        if input_mode == "mouse_keyboard" and not keyboard_active:
+            for click in response_handler.get_mouse_clicks():
+                if (click["type"] == "mouseup" and click.get("button", 0) == 0
+                        and now - last_mouse_move >= mouse_quiet_period):
+                    return finish((slider.get_value(), now - start))
+
         if (
+            # A held X pressed during mouse movement must be released/repressed
+            # before confirming, preventing simultaneous input sources.
             previous_confirm < confirm_threshold <= controls.confirm
             and not movement_active
             and (input_mode == "keyboard" or now - last_mouse_move >= mouse_quiet_period)
         ):
-            return slider.get_value(), now - start
+            return finish((slider.get_value(), now - start))
         previous_confirm = controls.confirm
         draw()
 

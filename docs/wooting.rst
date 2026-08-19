@@ -255,8 +255,8 @@ Input modes and customization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The default ``input_mode="keyboard"`` uses analog ``Z``/``C`` movement and
-``X`` confirmation. Use ``input_mode="mouse_keyboard"`` to move with the mouse
-and confirm with an analog key:
+``X`` confirmation. Use ``input_mode="mouse_keyboard"`` to allow both mouse
+and analog-key movement, with either a mouse click or ``X`` for confirmation:
 
 .. code-block:: python
 
@@ -267,8 +267,10 @@ and confirm with an analog key:
        confirm_key="x",
    )
 
-In this mode, the cursor must remain still for ``mouse_quiet_period`` seconds
-before confirmation. ``Z`` and ``C`` are not used for movement.
+The cursor is hidden and recentered at screen edges. A left click or ``X``
+confirms after ``mouse_quiet_period`` seconds without mouse movement. Pressure
+on any analog key temporarily gives the keyboard exclusive control. ``X``
+must be released and pressed again if it was held during mouse movement.
 
 The interaction loop does not recreate the scrollbar, so all of its visual
 customization remains available. Pass ``drawables`` for instruction text or

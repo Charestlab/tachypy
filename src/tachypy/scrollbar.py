@@ -226,6 +226,13 @@ class Scrollbar:
         self._update_mobile_line_geometry()
         return True
 
+    def move_by(self, delta_x: float, mouse_y: float | None = None) -> bool:
+        """Move the marker by a relative x-distance in screen pixels."""
+        return self.handle_mouse(
+            self.mobile_line_x + delta_x,
+            self.position_y if mouse_y is None else mouse_y,
+        )
+
     def get_normalized_value(self) -> float:
         """Return current position in [0, 1]."""
         return (self.mobile_line_x - self.min_x) / (self.max_x - self.min_x)
