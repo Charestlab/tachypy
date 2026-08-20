@@ -1,8 +1,8 @@
 """Display and timing utilities for TachyPy with pluggable backends."""
 
-import warnings
+import sys
 from time import monotonic_ns, sleep
-from typing import Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import numpy as np
 from OpenGL.GL import (
@@ -28,8 +28,159 @@ from OpenGL.GL import (
 from OpenGL.GLU import gluOrtho2D
 from screeninfo import get_monitors
 
+_WARMUP_COLOR = (128, 128, 128)
+
+
+def get_render_interval(screen) -> float:
+    """Return the frame interval used by TachyPy's visual loops.
+
+    The rate is selected as follows:
+
+    * VSync on: use the monitor's highest reported rate at the current
+      resolution, not just whatever the *current* mode happens to report
+      (adaptive-refresh displays, e.g. ProMotion, can otherwise get stuck
+      pacing to a transient idle rate).
+    * VSync off:
+
+      * with ``desired_refresh_rate``: use the desired rate;
+      * without it: use the same max-at-resolution rate, then 60 Hz.
+
+    The interval only schedules loop updates. VSync controls presentation
+    synchronization; manual pacing does not.
+    """
+    rate = getattr(screen, "_max_mode_refresh_rate", None)
+    if not getattr(screen, "vsync", True):
+        rate = getattr(screen, "desired_refresh_rate", None) or rate
+    rate = 60.0 if rate is None else float(rate)
+    if rate <= 0:
+        raise ValueError("the render rate must be positive")
+    return 1.0 / rate
+
+
+class LoopPacer:
+    """Pace rendering and input polling on independent schedules.
+
+    Render deadlines stay phase-locked instead of accumulating loop overhead.
+    ``render_due`` and ``wait`` are independent so a caller can draw one last
+    frame and return without going through the poll wait.
+    """
+
+    def __init__(
+        self, screen, wait_until: Callable[[float], None], start: float,
+        *, poll_interval: float = 1.0 / 1000.0, defer_first_render: bool = False,
+    ):
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be positive")
+        self._wait_until = wait_until
+        self.frame_interval = get_render_interval(screen)
+        self.poll_interval = poll_interval
+        # Request the render slightly early so flip()'s VSync block lands on time.
+        self._render_lead = (
+            min(poll_interval, self.frame_interval / 4)
+            if getattr(screen, "vsync", True)
+            else 0.0
+        )
+        render_delay = max(0.0, self.frame_interval - self._render_lead)
+        self._next_render = start + render_delay if defer_first_render else start
+        self._next_poll = start + poll_interval
+        self.late_renders = 0
+
+    def render_due(self, now: float) -> bool:
+        """Return whether a frame is due, advancing the render schedule if so.
+
+        Also tracks ``late_renders``: the number of consecutive renders that
+        missed their scheduled slot by a full frame_interval or more (e.g. a
+        slow ``draw()`` call), reset to 0 the moment a render is on time.
+        """
+        if now < self._next_render:
+            return False
+        if now - self._next_render >= self.frame_interval:
+            self.late_renders += 1
+        else:
+            self.late_renders = 0
+        elapsed_slots = int((now - self._next_render) / self.frame_interval) + 1
+        self._next_render += elapsed_slots * self.frame_interval
+        return True
+
+    def after_render(self, now: float) -> None:
+        """Anchor the next render deadline to a completed buffer swap."""
+        delay = max(0.0, self.frame_interval - self._render_lead)
+        self._next_render = now + delay
+
+    def wait(self, now: float) -> None:
+        """Wait for the next polling slot or render deadline, whichever is first.
+
+        A missed polling slot is skipped rather than caught up on, since a
+        back-to-back catch-up read can't recover a sample that was never
+        acquired at the time it was due.
+        """
+        if self._next_poll <= now:
+            elapsed_slots = int((now - self._next_poll) / self.poll_interval) + 1
+            self._next_poll += elapsed_slots * self.poll_interval
+        self._wait_until(min(self._next_poll, self._next_render))
+
+
 class Screen:
-    """Create and manage a GLFW/OpenGL display."""
+    """Create and manage a GLFW/OpenGL display for TachyPy experiments.
+
+    Usage and timing:
+
+    * Draw objects, call :meth:`flip` to present the frame, and use :meth:`fill`
+      to clear the display.
+    * VSync is enabled by default and recommended for experiments.
+    * With VSync on, TachyPy paces to the monitor's highest reported rate at
+      the current resolution; this is not a measurement of photon onset.
+    * A ``desired_refresh_rate`` above that rate produces a warning.
+    * With VSync off, ``desired_refresh_rate`` manually paces frames but does
+      not synchronize them to the display and may cause tearing.
+
+    Examples
+    --------
+    The usual setup is simply::
+
+        screen = Screen()
+        screen.fill((127, 127, 127))
+        stimulus.draw()
+        timestamp = screen.flip()
+
+    For explicit manual pacing::
+
+        screen = Screen(vsync=False, desired_refresh_rate=60)
+
+    Parameters
+    ----------
+    screen_number : int, default=0
+        Index of the monitor to use, following GLFW's monitor order.
+    width, height : int, optional
+        Window dimensions. When omitted, the selected monitor's dimensions are
+        used.
+    fullscreen : bool, default=True
+        Whether to create a fullscreen window.
+    vsync : bool, default=True
+        Synchronize buffer swaps with the monitor's refresh cycle. This is the
+        recommended setting for experiments.
+    desired_refresh_rate : int, optional
+        Manual pacing rate used only when ``vsync=False``. ``0`` or a negative
+        value explicitly disables manual pacing (``flip()`` is left
+        unthrottled), which ``None`` does not — an unset rate falls back to
+        the monitor's highest reported rate at the current resolution, then
+        60 Hz. When VSync is enabled, TachyPy warns if this value exceeds
+        that rate but does not use it to change presentation timing.
+    grab_input : bool, default=True
+        Whether GLFW captures the mouse inside the window.
+    backend : str, default="glfw"
+        Display backend. Only ``"glfw"`` is supported.
+    warmup_frames : int, default=60
+        Number of neutral frames presented before the experiment begins.
+
+    Attributes
+    ----------
+    mouse_visible : bool
+        Whether TachyPy currently considers the mouse cursor visible.
+    content_scale : float
+        Framebuffer-to-window scale factor. Pass it to text and widget objects
+        that support HiDPI rendering.
+    """
 
     def __init__(
         self,
@@ -38,11 +189,10 @@ class Screen:
         height: Optional[int] = None,
         fullscreen: bool = True,
         vsync: bool = True,
-        desired_refresh_rate: int = 60,
+        desired_refresh_rate: Optional[int] = None,
         grab_input: bool = True,
         backend: str = "glfw",
         warmup_frames: int = 60,
-        warmup_color: Sequence[float] = (128, 128, 128),
     ):
         """Initialize display window, OpenGL context, and timing state."""
         self.backend = backend.strip().lower()
@@ -55,10 +205,9 @@ class Screen:
         self.height = int(height) if height is not None else None
         self.fullscreen = bool(fullscreen)
         self.vsync = bool(vsync)
-        self.desired_refresh_rate = int(desired_refresh_rate)
+        self.desired_refresh_rate = None if desired_refresh_rate is None else int(desired_refresh_rate)
         self.grab_input = bool(grab_input)
         self.warmup_frames = int(warmup_frames)
-        self.warmup_color = tuple(warmup_color)
         self.mouse_visible = True
 
         self.last_flip_time: Optional[int] = None
@@ -72,20 +221,63 @@ class Screen:
         self._glfw = None
         self._glfw_window = None
         self.content_scale: float = 1.0
+        # Refresh rate reported by the active GLFW monitor mode.
+        self._mode_refresh_rate: Optional[float] = None
+        # Highest refresh rate reported across the selected monitor's video modes.
+        self._max_mode_refresh_rate: Optional[float] = None
 
         self._init_glfw_backend(screen_number)
+        self._warn_if_requested_rate_exceeds_display()
+        self._warn_if_mode_refresh_rate_unknown()
         self._init_opengl_state()
         self._warm_up_display()
 
     @staticmethod
-    def _clamp_screen_number(screen_number: int, n_monitors: int) -> int:
+    def _monitor_name(glfw_module, monitor) -> str:
+        """Return a decoded, human-readable monitor name."""
+        name = glfw_module.get_monitor_name(monitor) or b"unknown"
+        return name.decode("utf-8", errors="replace") if isinstance(name, bytes) else name
+
+    @staticmethod
+    def _video_mode_rate(video_mode) -> Optional[float]:
+        """Return a GLFW video mode's refresh rate, across binding attribute-name variants."""
+        rate = getattr(video_mode, "refresh_rate", None) or getattr(video_mode, "refreshRate", None)
+        return float(rate) if rate else None
+
+    @staticmethod
+    def _max_refresh_rate(glfw_module, monitor, width=None, height=None) -> Optional[float]:
+        """Return the highest refresh rate across a monitor's video modes, preferring ``width``/``height`` if given."""
+        matching, all_rates = [], []
+        for video_mode in glfw_module.get_video_modes(monitor) or []:
+            rate = Screen._video_mode_rate(video_mode)
+            if rate is None:
+                continue
+            all_rates.append(rate)
+            size = getattr(video_mode, "size", None)
+            if width is not None and size is not None and (int(size.width), int(size.height)) == (int(width), int(height)):
+                matching.append(rate)
+        return max(matching) if matching else (max(all_rates) if all_rates else None)
+
+    @staticmethod
+    def _describe_monitors(glfw_module, monitors) -> str:
+        """Return an indented 'index: name (up to N Hz)' listing of monitors."""
+        lines = []
+        for i, monitor in enumerate(monitors):
+            name = Screen._monitor_name(glfw_module, monitor)
+            max_rate = Screen._max_refresh_rate(glfw_module, monitor)
+            rate_text = f"up to {max_rate:g} Hz" if max_rate else "refresh rate unknown"
+            lines.append(f"\t\t  {i}: {name} ({rate_text})")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _clamp_screen_number(screen_number: int, glfw_module, monitors) -> int:
         """Return a valid monitor index, warning if the requested one is out of range."""
         safe = max(0, int(screen_number))
-        if safe >= n_monitors:
-            warnings.warn(
-                f"screen_number={screen_number} exceeds available monitors ({n_monitors}); using 0.",
-                UserWarning,
-                stacklevel=4,  # _clamp_screen_number → _init_*_backend → __init__ → caller
+        if safe >= len(monitors):
+            listing = Screen._describe_monitors(glfw_module, monitors)
+            Screen._print_init_warning(
+                f"screen_number={screen_number} exceeds available monitors ({len(monitors)}); "
+                f"using monitor 0.\n\t\tDetected monitors:\n{listing}"
             )
             return 0
         return safe
@@ -107,6 +299,53 @@ class Screen:
             return 0.001
         return None
 
+    @staticmethod
+    def _print_init_warning(message: str) -> None:
+        """Print a TachyPy-branded initialization warning to stderr."""
+        label = "\n\t[TachyPy WARNING]: Screen initialization"
+        if sys.stderr.isatty():
+            label = f"\033[1;31m{label}\033[0m"
+        print(f"{label}\n\t\t{message}", file=sys.stderr, end="\n\n")
+
+    def _warn_if_requested_rate_exceeds_display(self) -> None:
+        """Warn when the display cannot meet an explicitly requested rate."""
+        requested = self.desired_refresh_rate
+        actual = self._max_mode_refresh_rate
+        if requested and actual and actual < requested:
+            mode = "VSync is enabled" if self.vsync else "VSync is disabled"
+            advice = (
+                "\n\t\tThis is the highest rate this monitor reports at its current "
+                "resolution, across all its modes."
+                "\n\t\tLower desired_refresh_rate, or change resolution/refresh rate in "
+                "your OS display settings if you expected higher."
+            )
+            self._print_init_warning(
+                f"{mode}, but this monitor supports at most {actual:g} Hz; "
+                f"the requested {requested:g} Hz cannot be fully presented.{advice}"
+            )
+
+    def _warn_if_mode_refresh_rate_unknown(self) -> None:
+        """Warn when GLFW couldn't report any refresh rate, forcing a 60 Hz guess.
+
+        Skipped when ``vsync=False`` with ``desired_refresh_rate`` set, since
+        that value is used instead of the guess.
+        """
+        if self._max_mode_refresh_rate is not None:
+            return
+        if not self.vsync and self.desired_refresh_rate:
+            return
+        advice = (
+            "\n\t\tTachyPy cannot verify the true rate and will pace to a conservative"
+            " 60 Hz guess (guessing too high risks stalling input polling while a frame"
+            " blocks on the real, slower VSync)."
+            "\n\t\tPass desired_refresh_rate explicitly (with vsync=False) if you know "
+            "the real rate."
+        )
+        self._print_init_warning(
+            f"GLFW could not report a refresh rate for this display, in the current "
+            f"mode or any other.{advice}"
+        )
+
     def _init_glfw_backend(self, screen_number: int) -> None:
         """Create a GLFW window/context on the requested monitor."""
         try:
@@ -126,7 +365,7 @@ class Screen:
             glfw.terminate()
             raise RuntimeError("No monitors detected by GLFW.")
 
-        safe_screen_number = Screen._clamp_screen_number(screen_number, len(monitors))
+        safe_screen_number = Screen._clamp_screen_number(screen_number, glfw, monitors)
         monitor = monitors[safe_screen_number]
         self.monitor = monitor
 
@@ -134,6 +373,9 @@ class Screen:
         if mode is None:
             glfw.terminate()
             raise RuntimeError("Unable to read monitor video mode.")
+
+        self._mode_refresh_rate = Screen._video_mode_rate(mode)
+        self._max_mode_refresh_rate = Screen._max_refresh_rate(glfw, monitor, mode.size.width, mode.size.height)
 
         if self.width is None:
             self.width = int(mode.size.width)
@@ -196,7 +438,7 @@ class Screen:
     def _warm_up_display(self) -> None:
         """Present neutral frames before the caller starts experiment timing."""
         for _ in range(self.warmup_frames):
-            self.fill(self.warmup_color)
+            self.fill(_WARMUP_COLOR)
             self.flip()
         self._reset_flip_timing()
 
@@ -237,16 +479,19 @@ class Screen:
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
     def tick(self) -> None:
-        """Limit frame updates to the desired refresh rate."""
-        if self.desired_refresh_rate <= 0 or self.vsync:
+        """Limit frame updates when VSync is disabled."""
+        if self.vsync:
             return
+        if self.desired_refresh_rate is not None and self.desired_refresh_rate <= 0:
+            return  # explicit 0 (or negative) disables manual pacing
+        rate = self.desired_refresh_rate or self._max_mode_refresh_rate or 60.0
 
         now = monotonic_ns()
         if self._last_tick_time_ns is None:
             self._last_tick_time_ns = now
             return
 
-        target_frame_ns = int(1e9 / self.desired_refresh_rate)
+        target_frame_ns = int(1e9 / rate)
         deadline = self._last_tick_time_ns + target_frame_ns
         while True:
             remaining_ns = deadline - monotonic_ns()
@@ -263,6 +508,8 @@ class Screen:
         """Measure and return the mean frame interval in seconds."""
         frame_intervals = []
         for _ in range(num_frames):
+            # Without this, some platforms (e.g. macOS) stop blocking flip() for VSync.
+            self.poll_events()
             self.fill((128, 128, 128))
             self.flip()
             interval = self.get_flip_interval()

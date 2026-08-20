@@ -1,3 +1,7 @@
+import itertools
+
+import pytest
+
 from tachypy.scrollbar_interaction import (
     SliderControls,
     _effective_pressure,
@@ -64,6 +68,31 @@ class FakeMouseResponse(FakeResponse):
                 if self.clicks and self.frame > self.click_after else [])
 
 
+class CumulativeMouseResponse(FakeResponse):
+    """Mimics the real ResponseHandler: mouse_clicks only grows and is never
+    reset between calls, unlike FakeMouseResponse's frame-local recompute.
+
+    ``click_appears_on_call`` controls which get_mouse_clicks() call first
+    sees the click, so a test can put it on a frame where keyboard_active
+    is True before the loop later checks it with keyboard_active False.
+    """
+
+    def __init__(self, position, click_appears_on_call):
+        self.position = position
+        self.click_appears_on_call = click_appears_on_call
+        self.calls = 0
+        self._clicks = []
+
+    def get_mouse_position(self):
+        return self.position
+
+    def get_mouse_clicks(self):
+        self.calls += 1
+        if self.calls == self.click_appears_on_call and not self._clicks:
+            self._clicks.append({"type": "mouseup", "button": 0, "pos": self.position})
+        return self._clicks
+
+
 class EdgeMouseResponse(FakeResponse):
     def __init__(self):
         self.positions = iter([(500.0, 300.0), (999.0, 300.0), (500.0, 300.0)])
@@ -87,6 +116,48 @@ class FakeScreen:
 
     def flip(self):
         pass
+
+
+class FakeMouseScreen(FakeScreen):
+    vsync = False
+    desired_refresh_rate = -1
+
+    def __init__(self):
+        self.mouse_visible = True
+        self.show_calls = 0
+
+    def hide_mouse(self):
+        self.mouse_visible = False
+
+    def show_mouse(self):
+        self.mouse_visible = True
+        self.show_calls += 1
+
+
+class IncompleteMouseScreen(FakeScreen):
+    """Has mouse_visible but no hide_mouse/show_mouse -- an incomplete duck-typed screen."""
+
+    mouse_visible = True
+
+
+class QuittingResponse(FakeResponse):
+    def get_mouse_position(self):
+        return (50.0, 0.0)
+
+    def get_mouse_clicks(self):
+        return []
+
+    def should_quit(self):
+        return True
+
+
+def padded_clock(values):
+    """A finite clock schedule that repeats its last value instead of raising StopIteration.
+
+    A render can trigger an extra clock() read to resync after a blocking flip(),
+    which a plain iter([...]) can't absorb without knowing the exact call count.
+    """
+    return iter(itertools.chain(values, itertools.repeat(values[-1])))
 
 
 def test_pressure_mapping_is_precise_at_low_pressure():
@@ -153,9 +224,35 @@ def test_mouse_click_confirms_after_quiet_period():
     assert result == (90.0, 0.06)
 
 
+def test_stale_click_during_keyboard_input_is_drained_not_confirmed_later():
+    # A click that lands while keyboard_active is True must not resurface and
+    # spuriously confirm on a later, unrelated frame once keyboard goes quiet.
+    # increase=0.9 (not confirm) makes keyboard_active True without itself
+    # crossing confirm_threshold, so it can't confirm through a different path.
+    slider = FakeSlider()
+    response = CumulativeMouseResponse(position=(50.0, 0.0), click_appears_on_call=2)
+    clock_value = padded_clock([0.0, 0.0, 0.001, 0.002, 0.003])
+    result = run_slider_interaction(
+        slider=slider,
+        screen=FakeScreen(),
+        response_handler=response,
+        control_reader=FakeInput([
+            SliderControls(),              # frame 0: arm (no click yet)
+            SliderControls(increase=0.9),  # frame 1: keyboard_active; click appears, must be drained not acted on
+            SliderControls(),              # frame 2: keyboard_active False; stale click must NOT confirm here
+            SliderControls(confirm=0.8),   # frame 3: legitimate keyboard confirm
+        ]),
+        input_mode="mouse_keyboard",
+        wait_until=lambda _: None,
+        clock=lambda: next(clock_value),
+    )
+    # Confirmed via the legitimate keyboard path on frame 3, not the stale click on frame 2.
+    assert result[1] == pytest.approx(0.003)
+
+
 def test_mouse_keyboard_keeps_analog_key_movement():
     slider = FakeSlider()
-    clock_value = iter([0.0, 0.0, 0.01, 0.02, 0.10])
+    clock_value = padded_clock([0.0, 0.0, 0.01, 0.02, 0.10])
     result = run_slider_interaction(
         slider=slider,
         screen=FakeScreen(),
@@ -175,7 +272,7 @@ def test_mouse_keyboard_keeps_analog_key_movement():
 
 def test_mouse_is_locked_while_any_keyboard_key_has_pressure():
     slider = FakeSlider()
-    clock_value = iter([0.0, 0.0, 0.01, 0.02, 0.10])
+    clock_value = padded_clock([0.0, 0.0, 0.01, 0.02, 0.10])
     result = run_slider_interaction(
         slider=slider,
         screen=FakeScreen(),
@@ -215,3 +312,54 @@ def test_mouse_keyboard_recenters_at_screen_edge():
     )
     assert result[0] == 100.0
     assert response.recenters == [(500.0, 300.0)]
+
+
+def test_poll_wait_resyncs_to_post_render_clock_after_a_render():
+    # A render on the first iteration "blocks" for a long time (0.02 -> 5.0), simulating
+    # a slow flip(). The poll wait must be scheduled off the fresh post-render clock
+    # reading, not the stale pre-render `now`, or it drifts/busy-spins relative to real time.
+    slider = FakeSlider()
+    clock_value = padded_clock([0.0, 0.02, 5.0, 5.001])
+    waits = []
+    result = run_slider_interaction(
+        slider=slider,
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([SliderControls(), SliderControls(confirm=0.8)]),
+        clock=lambda: next(clock_value),
+        wait_until=waits.append,
+    )
+    assert waits == [pytest.approx(5.001)]
+    assert result == (50.0, pytest.approx(5.001))
+
+
+def test_mouse_visibility_restored_when_pacer_construction_fails():
+    screen = FakeMouseScreen()
+    with pytest.raises(ValueError):
+        run_slider_interaction(
+            slider=FakeSlider(),
+            screen=screen,
+            response_handler=FakeMouseResponse([(500.0, 300.0)]),
+            control_reader=FakeInput([SliderControls()]),
+            input_mode="mouse_keyboard",
+            wait_until=lambda _: None,
+            clock=lambda: 0.0,
+        )
+    assert screen.mouse_visible is True
+    assert screen.show_calls == 1
+
+
+def test_finish_does_not_crash_when_screen_lacks_mouse_visibility_methods():
+    # The initial hide is skipped via hasattr(screen, "hide_mouse"); finish()
+    # must use the same guard, not just "was mouse_visible known", or a
+    # screen with the attribute but not the methods crashes on exit.
+    result = run_slider_interaction(
+        slider=FakeSlider(),
+        screen=IncompleteMouseScreen(),
+        response_handler=QuittingResponse(),
+        control_reader=FakeInput([SliderControls()]),
+        input_mode="mouse_keyboard",
+        wait_until=lambda _: None,
+        clock=lambda: 0.0,
+    )
+    assert result == (None, None)

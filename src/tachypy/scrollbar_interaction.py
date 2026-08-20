@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Callable, Literal
 
 from tachypy.responses import ResponseHandler
+from tachypy.screen import LoopPacer
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,12 @@ class AnalogSliderMixin:
     ``Escape`` is handled automatically when no ``response_handler`` is
     supplied. Additional ``run_slider_interaction`` options can be forwarded as
     keyword arguments, for example ``pressure_gamma`` or ``drawables``.
+
+    Notes
+    -----
+    Analog polling targets ~1 kHz between display submissions. Rendering is
+    paced separately; a blocking ``flip()`` can briefly pause same-thread
+    polling.
     """
 
     def interact_slider(
@@ -257,6 +264,12 @@ def run_slider_interaction(
         ``wait_until(deadline)`` used to pace the loop. Defaults to a portable
         sleep-based implementation; inject a deterministic function in tests.
 
+    Notes
+    -----
+    Control polling targets ~1 kHz between display submissions. Rendering is
+    paced separately; a blocking ``flip()`` can briefly pause same-thread
+    polling.
+
     Returns
     -------
     (float, float) or (None, None)
@@ -327,6 +340,7 @@ def run_slider_interaction(
     armed = False
     last_mouse_move = float("-inf")
     last_mouse_position = None
+    consumed_mouse_clicks = 0
 
     def draw():
         if hasattr(screen, "fill"):
@@ -337,13 +351,18 @@ def run_slider_interaction(
         screen.flip()
 
     def finish(result):
-        if input_mode == "mouse_keyboard" and mouse_was_visible is not None:
+        if (input_mode == "mouse_keyboard" and mouse_was_visible is not None
+                and hasattr(screen, "show_mouse") and hasattr(screen, "hide_mouse")):
             (screen.show_mouse if mouse_was_visible else screen.hide_mouse)()
         return result
 
     draw()
     start = last = clock()
-    next_tick = start
+    try:
+        pacer = LoopPacer(screen, wait_until, start, defer_first_render=True)
+    except Exception:
+        finish(None)
+        raise
 
     while True:
         if response_handler is not None:
@@ -376,9 +395,11 @@ def run_slider_interaction(
             armed = max(controls.decrease, controls.increase, controls.confirm) < release_threshold
             previous_confirm = controls.confirm
             if not armed:
-                draw()
-                next_tick += 0.001
-                wait_until(next_tick)
+                if pacer.render_due(now):
+                    draw()
+                    now = clock()
+                    pacer.after_render(now)
+                pacer.wait(now)
                 continue
 
         if input_mode == "mouse_keyboard" and mouse_moved:
@@ -397,11 +418,15 @@ def run_slider_interaction(
             direction -= _effective_pressure(controls.decrease, pressure_deadzone, pressure_gamma)
             slider.set_value(slider.get_value() + movement_speed * direction * dt)
 
-        if input_mode == "mouse_keyboard" and not keyboard_active:
-            for click in response_handler.get_mouse_clicks():
-                if (click["type"] == "mouseup" and click.get("button", 0) == 0
-                        and now - last_mouse_move >= mouse_quiet_period):
-                    return finish((slider.get_value(), now - start))
+        if input_mode == "mouse_keyboard":
+            all_clicks = response_handler.get_mouse_clicks()
+            new_clicks = all_clicks[consumed_mouse_clicks:]
+            consumed_mouse_clicks = len(all_clicks)
+            if not keyboard_active:
+                for click in new_clicks:
+                    if (click["type"] == "mouseup" and click.get("button", 0) == 0
+                            and now - last_mouse_move >= mouse_quiet_period):
+                        return finish((slider.get_value(), now - start))
 
         if (
             # A held X pressed during mouse movement must be released/repressed
@@ -412,7 +437,8 @@ def run_slider_interaction(
         ):
             return finish((slider.get_value(), now - start))
         previous_confirm = controls.confirm
-        draw()
-
-        next_tick += 0.001
-        wait_until(next_tick)
+        if pacer.render_due(now):
+            draw()
+            now = clock()
+            pacer.after_render(now)
+        pacer.wait(now)
