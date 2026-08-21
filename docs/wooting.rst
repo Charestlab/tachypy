@@ -202,8 +202,8 @@ The method returns ``(value, reaction_time)`` on confirmation and
 ``(None, None)`` when the participant presses ``Escape`` or closes the window.
 A default :class:`~tachypy.responses.ResponseHandler` is created automatically.
 
-Controls and pressure mapping
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Controls and movement
+~~~~~~~~~~~~~~~~~~~~~
 
 The controls are:
 
@@ -216,10 +216,10 @@ The controls are:
      - Behaviour
    * - ``Z``
      - Decrease
-     - Moves toward the lower end of the scrollbar. Speed depends on pressure.
+     - Moves toward the lower end and accelerates while held.
    * - ``C``
      - Increase
-     - Moves toward the higher end of the scrollbar. Speed depends on pressure.
+     - Moves toward the higher end and accelerates while held.
    * - ``X``
      - Confirm
      - Selects the current value when its pressure crosses the confirmation threshold.
@@ -234,22 +234,52 @@ loop starts and raises if a configured key is unavailable.
        slider=scrollbar, screen=screen,
        decrease_key="a", increase_key="d", confirm_key="space")
 
-Movement is continuous. For pressure ``p`` above the deadzone ``d``, the
-private :func:`~tachypy.scrollbar_interaction._effective_pressure` helper uses:
+Pressure only determines whether a movement key is active. Once it exceeds
+``pressure_deadzone``, speed increases with hold duration:
 
 .. math::
 
-   p_{effective} = \left(\frac{p - d}{1 - d}\right)^\gamma
+   speed = movement\_speed \times
+   \max\left(0, curve\_y + (1 - curve\_y)
+   \min\left(\frac{acceleration \times hold\_duration}{movement\_speed}
+   - curve\_x, 1\right)^2\right)
 
-Pressures at or below ``d`` produce zero movement; the normalized result is
-raised to ``pressure_gamma`` and converted to a proportion of
-``movement_speed``. ``gamma=1`` is linear after the deadzone, ``gamma>1`` gives
-gentler fine control, and ``0<gamma<1`` is more responsive. ``gamma=0`` is an
-on/off step and is rejected. The default is ``pressure_gamma=2.5``.
+Releasing the key or changing direction resets speed immediately. By default,
+the ramp starts slightly above zero and reaches maximum speed after 0.75
+seconds. This keeps taps precise while sustained presses still travel quickly.
+
+The complete default movement profile is:
+
+.. code-block:: python
+
+   value, reaction_time = acq.interact_slider(
+       slider=scrollbar,
+       screen=screen,
+       pressure_deadzone=15 / 255,
+       acceleration=100,
+       movement_speed=100,
+       curve_x=-0.25,
+       curve_y=-0.03,
+       edge_margin=10,
+       edge_reduction=0.6,
+   )
+
+``curve_x`` is the horizontal shift: ``0`` uses the full curve, ``-0.25``
+begins 25% along it, and ``-1`` starts at maximum speed. ``curve_y`` is the
+vertical shift as a proportion of maximum speed: ``0.1`` places the quadratic
+vertex at 10% of ``movement_speed``. Negative values move it below zero; that
+part of the curve is clamped to zero speed.
+
+Within ``edge_margin`` units of an endpoint, outward keyboard movement is
+progressively reduced. ``edge_reduction=1`` is linear; larger values produce a
+stronger slowdown. Set either edge parameter to ``0`` to disable it. Movement
+back toward the center is always unaffected.
 
 ``X`` cannot confirm while ``Z`` or ``C`` is active. Confirmation is
-edge-triggered, and all three keys must be released below ``release_threshold``
-before the next trial is armed.
+edge-triggered, and ``X`` must be released below ``release_threshold`` once
+before it can confirm. ``Z`` and ``C`` remain responsive from the first sample;
+when both are pressed, pressure determines the active key: the stronger key
+controls direction and equal pressures cancel.
 
 Input modes and customization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -274,17 +304,29 @@ must be released and pressed again if it was held during mouse movement.
 
 The interaction loop does not recreate the scrollbar, so all of its visual
 customization remains available. Pass ``drawables`` for instruction text or
-other TachyPy objects, and tune ``initial_value``, ``movement_speed``,
-``pressure_deadzone``, and ``pressure_gamma`` as needed.
+other TachyPy objects, and tune ``initial_value``, ``pressure_deadzone``,
+``acceleration``, ``movement_speed``, ``curve_x``, ``curve_y``, ``edge_margin``,
+and ``edge_reduction`` as needed. Set ``initial_value=None`` to begin at the
+scrollbar's existing value, including the selection left by the preceding trial.
 
-Demo and API
-~~~~~~~~~~~~~~~~~~~~~
+Interactive lab and API
+~~~~~~~~~~~~~~~~~~~~~~~
 
-Try the three-trial demo with:
+Run the interactive demo and tuning lab with:
 
 .. code-block:: bash
 
-   tachypy-wooting-slider-demo
+   tachypy-wooting-slider-lab
+
+Drag the controls to change deadzone, acceleration, maximum speed, horizontal
+and vertical curve position, edge margin, and edge reduction. The graph shows
+speed by hold duration and tracks the active ``Z``/``C`` key. Press and release
+``X`` to start, match each blue target, then confirm with ``X``; the next trial
+starts automatically after release. Click a parameter during a trial to pause
+and adjust it, then press and release ``X`` to resume. The lab uses the same
+:meth:`~tachypy.scrollbar_interaction.AnalogSliderMixin.interact_slider`
+method as an experiment and preserves the last selected position. It does not
+save or model responses; it is only a visual parameter-tuning tool.
 
 The complete API, including the keyboard-agnostic
 :func:`~tachypy.scrollbar_interaction.run_slider_interaction`, is documented in

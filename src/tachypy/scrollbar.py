@@ -39,6 +39,18 @@ class Scrollbar:
         Color of the labels.
     text_offset : float
         Vertical offset for the labels above the bar.
+    notch_label_every : int
+        Label every Nth tick mark with its value (0-100 scale), skipping the
+        two extremities since ``text_left``/``text_right`` already label
+        those. ``0`` (default) disables notch labels entirely. Mutually
+        exclusive with ``show_value_label`` -- both share the same label row.
+    notch_label_font_scale : float
+        Font size for notch labels, as a fraction of ``font_size``.
+    show_value_label : bool
+        Show the current integer value directly under the moving marker,
+        updated live as it moves. Uses the same font size/color as
+        ``text_left``/``text_right`` and sits on the same row as those
+        labels. Mutually exclusive with ``notch_label_every``.
     limit_mouse : bool
         When True, the marker only updates when the mouse stays near the bar's
         horizontal line. Set to False to allow interaction even when the cursor
@@ -87,10 +99,20 @@ class Scrollbar:
         font_name: str = "Helvetica",
         text_color: Sequence[float] = (0, 0, 0),
         text_offset: float = 24,
+        notch_label_every: int = 0,
+        notch_label_font_scale: float = 0.7,
+        show_value_label: bool = False,
         limit_mouse: bool = False,
         content_scale: float = 1.0,
     ):
         """Create the bar, ticks, labels, and movable marker for the scrollbar."""
+        if notch_label_every < 0:
+            raise ValueError("notch_label_every must be >= 0")
+        if notch_label_every > 0 and show_value_label:
+            raise ValueError(
+                "notch_label_every and show_value_label share the same label row and "
+                "can overlap; enable only one."
+            )
         self.screen_width = float(screen_width)
         self.screen_height = float(screen_height)
         self.position_y = float(position_y)
@@ -110,6 +132,9 @@ class Scrollbar:
         self.font_name = font_name
         self.text_color = text_color
         self.text_offset = float(text_offset)
+        self.notch_label_every = int(notch_label_every)
+        self.notch_label_font_scale = float(notch_label_font_scale)
+        self.show_value_label = bool(show_value_label)
         self.limit_mouse = bool(limit_mouse)
         self.content_scale = float(content_scale)
 
@@ -176,6 +201,29 @@ class Scrollbar:
             content_scale=self.content_scale,
         )
 
+        self.notch_labels = []
+        if self.notch_label_every > 0:
+            notch_font_size = max(1, round(self.text_size * self.notch_label_font_scale))
+            mark_xs = np.linspace(
+                self.center_x - self.half_bar_length, self.center_x + self.half_bar_length, self.num_marks,
+            )
+            mark_values = np.linspace(0.0, 100.0, self.num_marks)
+            for i in range(1, self.num_marks - 1):  # skip both extremities
+                if i % self.notch_label_every != 0:
+                    continue
+                pos = center_rect_on_point(
+                    [0, 0, 500, 500],
+                    [mark_xs[i], self.position_y + self.half_end_height + self.text_offset],
+                )
+                self.notch_labels.append(Text(
+                    text=str(int(round(mark_values[i]))),
+                    font_name=self.font_name,
+                    font_size=notch_font_size,
+                    color=self.text_color,
+                    dest_rect=pos,
+                    content_scale=self.content_scale,
+                ))
+
         self.half_mobile_line_height = 12
         self.mobile_line_thickness = 6
         self.mobile_line_color = (255, 0, 0)
@@ -187,6 +235,17 @@ class Scrollbar:
             color=self.mobile_line_color,
         )
 
+        self.value_label = None
+        if self.show_value_label:
+            self.value_label = Text(
+                text=str(int(round(self.get_value()))),
+                font_name=self.font_name,
+                font_size=self.text_size,
+                color=self.text_color,
+                dest_rect=self._value_label_rect(),
+                content_scale=self.content_scale,
+            )
+
     @property
     def min_x(self) -> float:
         """Return minimum marker x-position."""
@@ -197,10 +256,20 @@ class Scrollbar:
         """Return maximum marker x-position."""
         return self.center_x + self.half_bar_length
 
+    def _value_label_rect(self):
+        """Return the centered dest_rect for the live value label, above the marker."""
+        return center_rect_on_point(
+            [0, 0, 500, 500],
+            [self.mobile_line_x, self.position_y + self.half_end_height + self.text_offset],
+        )
+
     def _update_mobile_line_geometry(self) -> None:
         """Update marker line endpoints from current x-position."""
         self.mobile_line.set_start_point((self.mobile_line_x, self.position_y - self.half_mobile_line_height))
         self.mobile_line.set_end_point((self.mobile_line_x, self.position_y + self.half_mobile_line_height))
+        if self.value_label is not None:
+            self.value_label.set_text(str(int(round(self.get_value()))))
+            self.value_label.set_dest_rect(self._value_label_rect())
 
     def draw(self) -> None:
         """Draw the scrollbar, ticks, labels, and marker."""
@@ -211,6 +280,10 @@ class Scrollbar:
         self.right_end.draw()
         self.text_left_label.draw()
         self.text_right_label.draw()
+        for notch_label in self.notch_labels:
+            notch_label.draw()
+        if self.value_label is not None:
+            self.value_label.draw()
         self.mobile_line.draw()
 
     def handle_mouse(self, mouse_x: float, mouse_y: float) -> bool:

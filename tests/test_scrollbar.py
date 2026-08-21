@@ -10,9 +10,17 @@ class FakeText:
     def __init__(self, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
+        self.text = kwargs.get("text")
+        self.dest_rect = kwargs.get("dest_rect")
 
     def draw(self):
         return None
+
+    def set_text(self, new_text):
+        self.text = new_text
+
+    def set_dest_rect(self, dest_rect):
+        self.dest_rect = dest_rect
 
 
 class FakeScreen:
@@ -106,3 +114,65 @@ def test_scrollbar_set_value_and_normalized_value(monkeypatch):
 
     sb.set_normalized_value(2.0)
     assert sb.get_normalized_value() == pytest.approx(1.0)
+
+
+def test_scrollbar_rejects_negative_notch_label_every(monkeypatch):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    with pytest.raises(ValueError, match="notch_label_every"):
+        Scrollbar(screen_width=800, screen_height=600, notch_label_every=-1)
+
+
+def test_scrollbar_rejects_notch_labels_combined_with_value_label(monkeypatch):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    with pytest.raises(ValueError, match="overlap"):
+        Scrollbar(
+            screen_width=800, screen_height=600,
+            notch_label_every=2, show_value_label=True,
+        )
+
+
+def test_scrollbar_no_notch_labels_by_default(monkeypatch):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(screen_width=800, screen_height=600, num_marks=11)
+    assert sb.notch_labels == []
+
+
+def test_scrollbar_notch_labels_skip_extremities_and_use_value_scale(monkeypatch):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(screen_width=800, screen_height=600, num_marks=11, notch_label_every=2)
+    # Marks 0 and 10 (the extremities) are excluded even though 0 % 2 == 0 and 10 % 2 == 0.
+    assert [label.text for label in sb.notch_labels] == ["20", "40", "60", "80"]
+
+
+def test_scrollbar_notch_label_font_is_scaled_down(monkeypatch):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(
+        screen_width=800, screen_height=600, num_marks=11,
+        notch_label_every=2, font_size=20, notch_label_font_scale=0.5,
+    )
+    assert all(label.kwargs["font_size"] == 10 for label in sb.notch_labels)
+    assert all(label.kwargs["color"] == sb.text_color for label in sb.notch_labels)
+    assert all(label.kwargs["font_name"] == sb.font_name for label in sb.notch_labels)
+
+
+def test_scrollbar_value_label_disabled_by_default(monkeypatch):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(screen_width=800, screen_height=600)
+    assert sb.value_label is None
+
+
+def test_scrollbar_value_label_tracks_marker_and_shows_integer_value(monkeypatch):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(screen_width=800, screen_height=600, half_bar_length=100, show_value_label=True)
+    assert sb.value_label.text == "50"
+
+    sb.set_value(33.7)
+    assert sb.value_label.text == "34"
+    assert sb.value_label.dest_rect == sb._value_label_rect()

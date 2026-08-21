@@ -2,7 +2,7 @@
 
 The interaction loop is deliberately separate from :class:`tachypy.scrollbar.Scrollbar`:
 ``Scrollbar`` owns drawing and value/geometry handling, while this module owns
-input, timing, pressure mapping, confirmation, and quit handling. This keeps
+input, timing, movement, confirmation, and quit handling. This keeps
 all of TachyPy's scrollbar customization available regardless of how the value
 is selected.
 
@@ -19,9 +19,9 @@ There are two intended entry points:
     Supply a ``control_reader`` returning :class:`SliderControls` each frame.
 
 The default keyboard mapping is ``Z`` to decrease, ``C`` to increase, and
-``X`` to confirm. The movement keys are analog: pressure is converted to a
-nonlinear speed, so light presses provide fine control. Confirmation is only
-accepted when neither movement key is active.
+``X`` to confirm. Movement starts slowly and accelerates while a key remains
+above the deadzone. Confirmation is only accepted while neither movement key
+is active.
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class SliderControls:
 
 
 class AnalogSliderMixin:
-    """Add pressure-driven scrollbar interaction to an analog acquisition.
+    """Add analog-key scrollbar interaction to an acquisition.
 
     The host object must implement ``read_pressures(keys)`` and return a mapping
     from each requested key to a normalized pressure. If it implements
@@ -90,7 +90,7 @@ class AnalogSliderMixin:
 
     ``Escape`` is handled automatically when no ``response_handler`` is
     supplied. Additional ``run_slider_interaction`` options can be forwarded as
-    keyword arguments, for example ``pressure_gamma`` or ``drawables``.
+    keyword arguments, for example ``acceleration`` or ``drawables``.
 
     Notes
     -----
@@ -122,8 +122,9 @@ class AnalogSliderMixin:
             raises before the loop if a key is not mapped as analog.
         **kwargs
             Options forwarded to :func:`run_slider_interaction`, including
-            ``input_mode``, ``drawables``, ``initial_value``,
-            ``movement_speed``, ``pressure_deadzone``, and ``pressure_gamma``.
+            ``input_mode``, ``drawables``, ``control_callback``, ``initial_value``,
+            ``movement_speed``, ``acceleration``, ``pressure_deadzone``,
+            ``curve_x``, ``curve_y``, ``edge_margin``, and ``edge_reduction``.
 
         Returns
         -------
@@ -155,22 +156,44 @@ class AnalogSliderMixin:
         )
 
 
-def _effective_pressure(pressure: float, deadzone: float, gamma: float) -> float:
-    """Map raw pressure to movement strength after a deadzone.
+def _movement_direction(controls: SliderControls, deadzone: float) -> int:
+    """Return -1, 0, or 1 from thresholded movement keys."""
+    decrease = controls.decrease if controls.decrease > deadzone else 0.0
+    increase = controls.increase if controls.increase > deadzone else 0.0
+    return (increase > decrease) - (decrease > increase)
 
-    For ``pressure > deadzone``, the exact mapping is::
 
-        effective = ((pressure - deadzone) / (1 - deadzone)) ** gamma
+def _quadratic_speed(hold_time, acceleration, maximum, curve_x, curve_y):
+    """Return speed on the bounded quadratic hold curve."""
+    phase = min(max(hold_time * acceleration / maximum - curve_x, 0.0), 1.0)
+    return maximum * max(0.0, curve_y + (1 - curve_y) * phase**2)
 
-    The result is clipped to the ``0.0``–``1.0`` range before exponentiation.
-    ``gamma=1`` is therefore linear *after* the deadzone. ``gamma > 1`` makes
-    low pressures disproportionately gentle while keeping full pressure at
-    full speed. ``gamma=0`` would be a step function (zero below the deadzone,
-    one above it), not a linear mapping, and is rejected by the public loop.
-    """
-    if pressure <= deadzone:
-        return 0.0
-    return ((min(1.0, float(pressure)) - deadzone) / (1.0 - deadzone)) ** gamma
+
+def _accelerated_step(hold_time, dt, acceleration, maximum, curve_x=0.0, curve_y=0.0):
+    """Integrate one step of the quadratic hold-to-speed curve."""
+    ramp_time = maximum / acceleration
+    offset = -curve_x * ramp_time
+    effective_hold = min(ramp_time, hold_time + offset)
+    new_hold = min(max(0.0, ramp_time - offset), hold_time + dt)
+    new_effective = min(ramp_time, new_hold + offset)
+    accelerating = new_effective - effective_hold
+    zero_crossing = ramp_time * (-curve_y / (1 - curve_y)) ** 0.5 if curve_y < 0 else 0.0
+    positive_start = max(effective_hold, zero_crossing)
+    positive_duration = max(0.0, new_effective - positive_start)
+    distance = maximum * curve_y * positive_duration
+    distance += maximum * (1 - curve_y) * max(
+        0.0, new_effective**3 - positive_start**3,
+    ) / (3 * ramp_time**2)
+    distance += maximum * (dt - accelerating)
+    return distance, new_hold
+
+
+def _edge_scale(value, direction, margin, reduction):
+    """Scale outward movement near an endpoint; inward movement stays unchanged."""
+    if margin <= 0 or reduction <= 0:
+        return 1.0
+    distance = value if direction < 0 else 100 - value
+    return min(max(distance / margin, 0.0), 1.0) ** reduction
 
 
 def run_slider_interaction(
@@ -180,12 +203,17 @@ def run_slider_interaction(
     response_handler=None,
     input_mode: Literal["keyboard", "mouse_keyboard"] = "keyboard",
     control_reader: Callable[[], SliderControls] | None = None,
+    control_callback: Callable[[SliderControls], bool | None] | None = None,
     validate_input: Callable[[], None] | None = None,
     drawables=(),
-    initial_value: float = 50.0,
+    initial_value: float | None = 50.0,
     movement_speed: float = 100.0,
-    pressure_deadzone: float = 0.05,
-    pressure_gamma: float = 2.5,
+    acceleration: float = 100.0,
+    pressure_deadzone: float = 15 / 255,
+    curve_x: float = -0.25,
+    curve_y: float = -0.03,
+    edge_margin: float = 10.0,
+    edge_reduction: float = 0.6,
     confirm_threshold: float = 0.6,
     release_threshold: float = 0.03,
     mouse_quiet_period: float = 0.08,
@@ -229,29 +257,48 @@ def run_slider_interaction(
     control_reader : callable
         Zero-argument callable returning ``SliderControls`` for the current
         frame. Values are expected in ``0.0``–``1.0``.
+    control_callback : callable, optional
+        Receives each ``SliderControls`` sample after it is read. This can
+        update lightweight live feedback without polling the keyboard twice.
+        Return ``True`` to stop the interaction with ``(None, None)``.
     validate_input : callable, optional
         Called once before the loop. Use this in a keyboard-specific adapter to
         validate key availability without putting keyboard imports here.
     drawables : sequence, optional
         Objects with ``draw()`` called after the scrollbar on every frame.
-    initial_value : float, default=50.0
-        Value assigned to the scrollbar at the start of the interaction.
+    initial_value : float or None, default=50.0
+        Value assigned at the start. Use ``None`` to preserve the scrollbar's
+        current value, such as the selection from the preceding trial.
     movement_speed : float, default=100.0
-        Maximum scrollbar units per second at full effective pressure.
-    pressure_deadzone : float, default=0.05
-        Pressures at or below this value do not move the scrollbar.
-    pressure_gamma : float, default=2.5
-        Exponent used after deadzone normalization in
-        ``effective = normalized_pressure ** pressure_gamma``. ``1`` gives a
-        linear mapping after the deadzone; values above ``1`` make light
-        presses slower and improve fine adjustment. ``0`` is invalid because it
-        would create an abrupt on/off step rather than a useful speed curve.
+        Maximum scrollbar units per second reached while a movement key is held.
+    acceleration : float, default=100.0
+        Controls the quadratic speed ramp. With ``curve_x=0``, maximum speed is
+        reached after ``movement_speed / acceleration`` seconds; a negative
+        ``curve_x`` shortens that duration. Releasing or changing direction
+        resets the ramp immediately.
+    pressure_deadzone : float, default=15/255
+        Pressures at or below 15 on the keyboard's 0–255 scale do not move the
+        scrollbar.
+    curve_x : float, default=-0.25
+        Horizontal position of the quadratic vertex, from ``-1`` to ``0``, as
+        a proportion of ramp duration. Negative values start farther along the
+        curve; ``-1`` starts at maximum speed.
+    curve_y : float, default=-0.03
+        Vertical position of the quadratic vertex, from ``-1`` to ``1``, as a
+        proportion of ``movement_speed``. Positive values increase initial
+        speed; negative portions of the curve are clamped to zero speed.
+    edge_margin : float, default=10.0
+        Distance from each endpoint over which outward keyboard movement is
+        progressively reduced. ``0`` disables edge reduction.
+    edge_reduction : float, default=0.6
+        Strength of edge reduction. ``0`` disables it, ``1`` gives a linear
+        reduction, and values above ``1`` slow movement more strongly. Movement
+        back toward the center is never reduced.
     confirm_threshold : float, default=0.6
         Pressure that the confirm key must cross to select the value.
     release_threshold : float, default=0.03
-        All three controls must fall below this level before a trial is armed.
-        This prevents a key held from the previous trial from immediately
-        moving or confirming the next one.
+        The confirm key must fall below this level once before it can select a
+        value. Movement keys remain responsive from the first input sample.
     mouse_quiet_period : float, default=0.08
         Required seconds without mouse movement before mouse confirmation is
         accepted. It is also used by ``mouse_keyboard`` mode before keyboard
@@ -290,7 +337,8 @@ def run_slider_interaction(
        value, rt = acquisition.interact_slider(
            slider=scrollbar, screen=screen,
            drawables=(instruction_text,),
-           pressure_gamma=2.5,
+           acceleration=200,
+           movement_speed=80,
        )
 
     A different analog keyboard can use the generic loop directly:
@@ -321,8 +369,10 @@ def run_slider_interaction(
     mouse_was_visible = getattr(screen, "mouse_visible", None)
     if input_mode == "mouse_keyboard" and hasattr(screen, "hide_mouse"):
         screen.hide_mouse()
-    if not 0 <= pressure_deadzone < 1 or pressure_gamma <= 0:
-        raise ValueError("Invalid pressure mapping parameters")
+    if (movement_speed <= 0 or acceleration <= 0 or not 0 <= pressure_deadzone < 1
+            or not -1 <= curve_x <= 0 or not -1 <= curve_y <= 1
+            or edge_margin < 0 or edge_reduction < 0):
+        raise ValueError("Invalid movement, deadzone, or edge parameters")
     if not 0 <= release_threshold < confirm_threshold <= 1:
         raise ValueError("Require 0 <= release_threshold < confirm_threshold <= 1")
     if validate_input is not None:
@@ -335,12 +385,15 @@ def run_slider_interaction(
         if hasattr(response_handler, "reset_timer"):
             response_handler.reset_timer()
 
-    slider.set_value(initial_value)
+    if initial_value is not None:
+        slider.set_value(initial_value)
     previous_confirm = 0.0
-    armed = False
+    confirm_armed = False
     last_mouse_move = float("-inf")
     last_mouse_position = None
     consumed_mouse_clicks = 0
+    movement_hold_time = 0.0
+    previous_direction = 0
 
     def draw():
         if hasattr(screen, "fill"):
@@ -374,11 +427,17 @@ def run_slider_interaction(
         dt = min(max(0.0, now - last), 0.1)
         last = now
         controls = control_reader()
+        if control_callback is not None and control_callback(controls):
+            return finish((None, None))
+        if not confirm_armed and controls.confirm < release_threshold:
+            confirm_armed = True
         keyboard_active = max(controls.decrease, controls.increase, controls.confirm) > pressure_deadzone
-        movement_active = (
+        direction = _movement_direction(controls, pressure_deadzone)
+        movement_keys_held = (
             input_mode in ("keyboard", "mouse_keyboard")
-            and max(controls.decrease, controls.increase) > pressure_deadzone
+            and (controls.decrease > pressure_deadzone or controls.increase > pressure_deadzone)
         )
+        movement_active = movement_keys_held and direction != 0
 
         mouse_position = None
         mouse_moved = False
@@ -390,17 +449,6 @@ def run_slider_interaction(
             if mouse_moved:
                 last_mouse_move = now
             last_mouse_position = mouse_position
-
-        if not armed:
-            armed = max(controls.decrease, controls.increase, controls.confirm) < release_threshold
-            previous_confirm = controls.confirm
-            if not armed:
-                if pacer.render_due(now):
-                    draw()
-                    now = clock()
-                    pacer.after_render(now)
-                pacer.wait(now)
-                continue
 
         if input_mode == "mouse_keyboard" and mouse_moved:
             if not keyboard_active:
@@ -414,9 +462,18 @@ def run_slider_interaction(
                 last_mouse_move = now
 
         if movement_active:
-            direction = _effective_pressure(controls.increase, pressure_deadzone, pressure_gamma)
-            direction -= _effective_pressure(controls.decrease, pressure_deadzone, pressure_gamma)
-            slider.set_value(slider.get_value() + movement_speed * direction * dt)
+            if direction != previous_direction:
+                movement_hold_time = 0.0
+            distance, movement_hold_time = _accelerated_step(
+                movement_hold_time, dt, acceleration, movement_speed, curve_x, curve_y,
+            )
+            distance *= _edge_scale(
+                slider.get_value(), direction, edge_margin, edge_reduction,
+            )
+            slider.set_value(slider.get_value() + direction * distance)
+        else:
+            movement_hold_time = 0.0
+        previous_direction = direction
 
         if input_mode == "mouse_keyboard":
             all_clicks = response_handler.get_mouse_clicks()
@@ -430,9 +487,12 @@ def run_slider_interaction(
 
         if (
             # A held X pressed during mouse movement must be released/repressed
-            # before confirming, preventing simultaneous input sources.
-            previous_confirm < confirm_threshold <= controls.confirm
-            and not movement_active
+            # before confirming, preventing simultaneous input sources. Blocked
+            # on movement_keys_held (not movement_active), since a tied Z/C
+            # press still holds both keys even though it resolves to no motion.
+            confirm_armed
+            and previous_confirm < confirm_threshold <= controls.confirm
+            and not movement_keys_held
             and (input_mode == "keyboard" or now - last_mouse_move >= mouse_quiet_period)
         ):
             return finish((slider.get_value(), now - start))

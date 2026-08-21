@@ -64,6 +64,11 @@ Common options include:
 * ``num_marks``, ``mark_thickness`` and ``mark_color`` for tick marks;
 * ``text_left``, ``text_right``, ``font_name``, ``font_size`` and
   ``text_color`` for endpoint labels;
+* ``notch_label_every`` to label interior tick marks with their value
+  (0-100 scale), and ``notch_label_font_scale`` to size them relative to
+  ``font_size``;
+* ``show_value_label`` to show the current integer value live under the
+  moving marker;
 * ``half_end_height``, ``end_thickness`` and ``end_color`` for the endpoints;
 * ``limit_mouse`` to require the cursor to stay near the bar's horizontal line;
 * ``content_scale=screen.content_scale`` for sharp labels on Retina/HiDPI

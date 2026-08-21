@@ -4,7 +4,10 @@ import pytest
 
 from tachypy.scrollbar_interaction import (
     SliderControls,
-    _effective_pressure,
+    _accelerated_step,
+    _edge_scale,
+    _movement_direction,
+    _quadratic_speed,
     run_slider_interaction,
 )
 
@@ -160,9 +163,193 @@ def padded_clock(values):
     return iter(itertools.chain(values, itertools.repeat(values[-1])))
 
 
-def test_pressure_mapping_is_precise_at_low_pressure():
-    assert _effective_pressure(0.05, 0.05, 2.5) == 0.0
-    assert _effective_pressure(0.2, 0.05, 2.5) < _effective_pressure(0.8, 0.05, 2.5)
+def test_movement_direction_uses_deadzone_and_stronger_key():
+    deadzone = 15 / 255
+    assert _movement_direction(SliderControls(increase=deadzone), deadzone) == 0
+    assert _movement_direction(SliderControls(increase=0.8), deadzone) == 1
+    assert _movement_direction(SliderControls(decrease=0.8), deadzone) == -1
+    assert _movement_direction(SliderControls(decrease=0.4, increase=0.8), deadzone) == 1
+    assert _movement_direction(SliderControls(decrease=0.8, increase=0.8), deadzone) == 0
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"movement_speed": 0},
+        {"acceleration": 0},
+        {"pressure_deadzone": -0.01},
+        {"pressure_deadzone": 1},
+        {"curve_x": -1.01},
+        {"curve_x": 0.01},
+        {"curve_y": -1.01},
+        {"curve_y": 1.01},
+    ],
+)
+def test_invalid_movement_parameters_are_rejected(parameters):
+    with pytest.raises(ValueError, match="movement"):
+        run_slider_interaction(
+            slider=FakeSlider(),
+            screen=FakeScreen(),
+            response_handler=FakeResponse(),
+            control_reader=FakeInput([SliderControls()]),
+            wait_until=lambda _: None,
+            **parameters,
+        )
+
+
+def test_edge_reduction_only_affects_outward_movement():
+    assert _edge_scale(10, -1, 20, 1) == pytest.approx(0.5)
+    assert _edge_scale(10, -1, 20, 2) == pytest.approx(0.25)
+    assert _edge_scale(10, 1, 20, 2) == 1.0
+    assert _edge_scale(0, -1, 20, 1) == 0.0
+    assert _edge_scale(0, -1, 0, 1) == 1.0
+
+
+@pytest.mark.parametrize("parameters", [{"edge_margin": -1}, {"edge_reduction": -0.1}])
+def test_invalid_edge_parameters_are_rejected(parameters):
+    with pytest.raises(ValueError, match="edge"):
+        run_slider_interaction(
+            slider=FakeSlider(),
+            screen=FakeScreen(),
+            response_handler=FakeResponse(),
+            control_reader=FakeInput([SliderControls()]),
+            wait_until=lambda _: None,
+            **parameters,
+        )
+
+
+def test_held_key_accelerates_until_maximum_speed():
+    clock_value = padded_clock([0.0, 0.0, 0.1, 0.2, 0.3])
+    value, _ = run_slider_interaction(
+        slider=FakeSlider(),
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(confirm=0.8),
+        ]),
+        movement_speed=10,
+        acceleration=100,
+        curve_x=0,
+        curve_y=0,
+        edge_margin=0,
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert value == pytest.approx(51 + 1 / 3)
+
+
+def test_quadratic_integration_is_independent_of_step_size():
+    whole, _ = _accelerated_step(0, 0.6, 100, 100, -0.25, -0.03)
+    total = hold = 0.0
+    for _ in range(600):
+        distance, hold = _accelerated_step(hold, 0.001, 100, 100, -0.25, -0.03)
+        total += distance
+    assert total == pytest.approx(whole)
+
+
+@pytest.mark.parametrize("hold_time", [0.0, 0.2, 0.6, 0.8])
+def test_integrated_curve_matches_reported_speed(hold_time):
+    step = 1e-6
+    distance, _ = _accelerated_step(hold_time, step, 100, 100, -0.25, -0.03)
+    expected = _quadratic_speed(hold_time, 100, 100, -0.25, -0.03)
+    assert distance / step == pytest.approx(expected, abs=1e-4)
+
+
+def test_curve_position_controls_initial_speed():
+    def move(curve_x=0, curve_y=0):
+        clock_value = padded_clock([0.0, 0.0, 0.1, 0.2])
+        return run_slider_interaction(
+            slider=FakeSlider(),
+            screen=FakeScreen(),
+            response_handler=FakeResponse(),
+            control_reader=FakeInput([
+                SliderControls(increase=0.8),
+                SliderControls(increase=0.8),
+                SliderControls(confirm=0.8),
+            ]),
+            curve_x=curve_x,
+            curve_y=curve_y,
+            movement_speed=40,
+            acceleration=200,
+            edge_margin=0,
+            clock=lambda: next(clock_value),
+            wait_until=lambda _: None,
+        )[0]
+
+    assert move(curve_x=-0.25) > move()
+    assert move(curve_y=0.25) > move()
+    assert move(curve_y=-0.25) < move()
+    assert move(curve_x=-1) == pytest.approx(54.0)
+    assert move(curve_y=1) == pytest.approx(54.0)
+
+
+def test_pressure_magnitude_does_not_change_speed_above_deadzone():
+    def move(pressure):
+        clock_value = padded_clock([0.0, 0.0, 0.1, 0.2])
+        return run_slider_interaction(
+            slider=FakeSlider(),
+            screen=FakeScreen(),
+            response_handler=FakeResponse(),
+            control_reader=FakeInput([
+                SliderControls(increase=pressure),
+                SliderControls(increase=pressure),
+                SliderControls(confirm=0.8),
+            ]),
+            clock=lambda: next(clock_value),
+            wait_until=lambda _: None,
+        )[0]
+
+    assert move(0.1) == pytest.approx(move(1.0))
+
+
+def test_release_resets_acceleration():
+    clock_value = padded_clock([0.0, 0.0, 0.1, 0.2, 0.3, 0.4])
+    value, _ = run_slider_interaction(
+        slider=FakeSlider(),
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(),
+            SliderControls(increase=0.8),
+            SliderControls(confirm=0.8),
+        ]),
+        movement_speed=100,
+        acceleration=100,
+        curve_x=0,
+        curve_y=0,
+        edge_margin=0,
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert value == pytest.approx(50 + 1 / 15)
+
+
+def test_direction_change_resets_acceleration():
+    clock_value = padded_clock([0.0, 0.0, 0.1, 0.2, 0.3])
+    value, _ = run_slider_interaction(
+        slider=FakeSlider(),
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(decrease=0.8),
+            SliderControls(confirm=0.8),
+        ]),
+        movement_speed=100,
+        acceleration=100,
+        curve_x=0,
+        curve_y=0,
+        edge_margin=0,
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert value == pytest.approx(50.0)
 
 
 def test_keyboard_slider_moves_and_confirms():
@@ -185,6 +372,126 @@ def test_keyboard_slider_moves_and_confirms():
     assert result[1] > 0.0
 
 
+def test_control_callback_receives_each_sample():
+    samples = [SliderControls(), SliderControls(increase=0.8), SliderControls(confirm=0.8)]
+    observed = []
+    clock_value = iter([0.0, 0.001, 0.002, 0.003])
+    run_slider_interaction(
+        slider=FakeSlider(),
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput(samples),
+        control_callback=observed.append,
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert observed == samples
+
+
+def test_control_callback_can_stop_interaction():
+    result = run_slider_interaction(
+        slider=FakeSlider(),
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([SliderControls()]),
+        control_callback=lambda _controls: True,
+        clock=lambda: 0.0,
+        wait_until=lambda _: None,
+    )
+    assert result == (None, None)
+
+
+def test_none_initial_value_preserves_previous_selection():
+    slider = FakeSlider()
+    slider.set_value(73.5)
+    clock_value = iter([0.0, 0.001, 0.002])
+    value, _ = run_slider_interaction(
+        slider=slider,
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(),
+            SliderControls(confirm=0.8),
+        ]),
+        initial_value=None,
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert value == 73.5
+
+
+def test_movement_key_held_at_start_moves_immediately():
+    slider = FakeSlider()
+    clock_value = padded_clock([0.0, 0.0, 0.01, 0.02, 0.03, 0.04])
+    result = run_slider_interaction(
+        slider=slider,
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(),
+            SliderControls(confirm=0.8),
+        ]),
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert result[0] > 50.0
+
+
+def test_stronger_opposing_key_determines_direction():
+    slider = FakeSlider()
+    clock_value = iter([0.0, 0.0, 0.01, 0.02])
+    result = run_slider_interaction(
+        slider=slider,
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(decrease=0.4, increase=0.8),
+            SliderControls(decrease=0.4, increase=0.8),
+            SliderControls(confirm=0.8),
+        ]),
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert result[0] > 50.0
+
+
+def test_equal_opposing_keys_cancel():
+    clock_value = iter([0.0, 0.0, 0.01, 0.02])
+    result = run_slider_interaction(
+        slider=FakeSlider(),
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(decrease=0.8, increase=0.8),
+            SliderControls(decrease=0.8, increase=0.8),
+            SliderControls(confirm=0.8),
+        ]),
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert result[0] == 50.0
+
+
+def test_confirm_held_at_start_requires_release_and_repress():
+    clock_value = iter([0.0, 0.0, 0.001, 0.002, 0.003])
+    result = run_slider_interaction(
+        slider=FakeSlider(),
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(confirm=0.8),
+            SliderControls(confirm=0.8),
+            SliderControls(),
+            SliderControls(confirm=0.8),
+        ]),
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert result == (50.0, pytest.approx(0.003))
+
+
 def test_confirmation_is_blocked_during_movement_until_x_is_repressed():
     slider = FakeSlider()
     clock_value = iter(i / 1000 for i in range(8))
@@ -204,6 +511,28 @@ def test_confirmation_is_blocked_during_movement_until_x_is_repressed():
         wait_until=lambda _: None,
     )
     assert result[0] > 50.0
+
+
+def test_confirm_blocked_when_decrease_and_increase_pressures_tie():
+    # A tie between Z and C resolves to no net movement (direction=0), but
+    # both keys are still held -- X must stay blocked, not just when there's
+    # net motion, matching "X cannot confirm while Z or C is active".
+    slider = FakeSlider()
+    clock_value = padded_clock([0.0, 0.0, 0.001, 0.002, 0.003])
+    result = run_slider_interaction(
+        slider=slider,
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(),                                        # frame 0: arm confirm
+            SliderControls(decrease=0.8, increase=0.8, confirm=0.8),  # frame 1: tied Z/C + confirm cross -- must not confirm
+            SliderControls(),                                        # frame 2: release everything
+            SliderControls(confirm=0.8),                             # frame 3: legitimate confirm
+        ]),
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert result == (50.0, pytest.approx(0.003))
 
 
 def test_mouse_click_confirms_after_quiet_period():
