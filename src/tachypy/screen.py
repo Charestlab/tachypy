@@ -1,6 +1,5 @@
 """Display and timing utilities for TachyPy with pluggable backends."""
 
-import sys
 from time import monotonic_ns, sleep
 from typing import Callable, Optional, Sequence, Tuple
 
@@ -27,6 +26,8 @@ from OpenGL.GL import (
 )
 from OpenGL.GLU import gluOrtho2D
 from screeninfo import get_monitors
+
+from tachypy._warnings import warn_once
 
 _WARMUP_COLOR = (128, 128, 128)
 
@@ -273,11 +274,13 @@ class Screen:
     def _clamp_screen_number(screen_number: int, glfw_module, monitors) -> int:
         """Return a valid monitor index, warning if the requested one is out of range."""
         safe = max(0, int(screen_number))
-        if safe >= len(monitors):
+        if int(screen_number) < 0 or safe >= len(monitors):
             listing = Screen._describe_monitors(glfw_module, monitors)
-            Screen._print_init_warning(
-                f"screen_number={screen_number} exceeds available monitors ({len(monitors)}); "
-                f"using monitor 0.\n\t\tDetected monitors:\n{listing}"
+            warn_once(
+                "Screen initialization",
+                f"screen_number={screen_number} is outside the available monitor range "
+                f"(0-{len(monitors) - 1}); "
+                f"using monitor 0.\n\t\tDetected monitors:\n{listing}",
             )
             return 0
         return safe
@@ -299,14 +302,6 @@ class Screen:
             return 0.001
         return None
 
-    @staticmethod
-    def _print_init_warning(message: str) -> None:
-        """Print a TachyPy-branded initialization warning to stderr."""
-        label = "\n\t[TachyPy WARNING]: Screen initialization"
-        if sys.stderr.isatty():
-            label = f"\033[1;31m{label}\033[0m"
-        print(f"{label}\n\t\t{message}", file=sys.stderr, end="\n\n")
-
     def _warn_if_requested_rate_exceeds_display(self) -> None:
         """Warn when the display cannot meet an explicitly requested rate."""
         requested = self.desired_refresh_rate
@@ -319,9 +314,10 @@ class Screen:
                 "\n\t\tLower desired_refresh_rate, or change resolution/refresh rate in "
                 "your OS display settings if you expected higher."
             )
-            self._print_init_warning(
+            warn_once(
+                "Screen initialization",
                 f"{mode}, but this monitor supports at most {actual:g} Hz; "
-                f"the requested {requested:g} Hz cannot be fully presented.{advice}"
+                f"the requested {requested:g} Hz cannot be fully presented.{advice}",
             )
 
     def _warn_if_mode_refresh_rate_unknown(self) -> None:
@@ -341,9 +337,10 @@ class Screen:
             "\n\t\tPass desired_refresh_rate explicitly (with vsync=False) if you know "
             "the real rate."
         )
-        self._print_init_warning(
+        warn_once(
+            "Screen initialization",
             f"GLFW could not report a refresh rate for this display, in the current "
-            f"mode or any other.{advice}"
+            f"mode or any other.{advice}",
         )
 
     def _init_glfw_backend(self, screen_number: int) -> None:

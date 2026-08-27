@@ -3,6 +3,7 @@
 from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
+from tachypy._warnings import warn_once
 from OpenGL.GL import (
     GL_CLAMP_TO_EDGE,
     GL_LINEAR,
@@ -75,6 +76,26 @@ class Texture:
         if image.ndim != 3 or image.shape[2] != 3:
             raise ValueError("image must have shape (H, W, 3)")
         if image.dtype != np.uint8:
+            if np.issubdtype(image.dtype, np.number):
+                finite = np.isfinite(image).all()
+                image_min = float(np.nanmin(image)) if image.size else 0.0
+                image_max = float(np.nanmax(image)) if image.size else 0.0
+                if not finite:
+                    detail = "contains NaN or infinite values"
+                elif 0.0 <= image_min and image_max <= 1.0:
+                    detail = "looks normalized to [0, 1], not to the documented [0, 255] range"
+                elif image_min < 0.0 or image_max > 255.0:
+                    detail = f"contains values outside [0, 255] (min={image_min:g}, max={image_max:g})"
+                else:
+                    detail = f"has dtype {image.dtype} and will be truncated when converted"
+            else:
+                detail = f"has dtype {image.dtype} and may not convert as intended"
+            warn_once(
+                "Texture image conversion",
+                f"Converting an image to uint8: it {detail}."
+                "\n\t\tPass a uint8 RGB image, or convert/scale it explicitly before "
+                "creating the Texture.",
+            )
             image = image.astype(np.uint8)
         return image
 

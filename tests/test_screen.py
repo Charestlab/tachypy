@@ -2,6 +2,7 @@ import types
 
 import pytest
 
+import tachypy._warnings as warnings_module
 import tachypy.screen as screen_module
 from fake_glfw import FakeGlfw
 from tachypy.screen import Screen
@@ -315,8 +316,9 @@ def test_clamp_screen_number_no_warning_when_valid(capsys):
     assert not capsys.readouterr().err
 
 
-def test_clamp_screen_number_negative_clamps_silently_to_zero(capsys):
+def test_clamp_screen_number_warns_when_negative(capsys, monkeypatch):
+    monkeypatch.setattr(warnings_module, "_warned", set())
     monitors = [_FakeMonitor("A", [60]), _FakeMonitor("B", [60])]
     result = Screen._clamp_screen_number(-1, _FakeMonitorGlfw(), monitors)
     assert result == 0
-    assert not capsys.readouterr().err
+    assert "screen_number=-1" in capsys.readouterr().err

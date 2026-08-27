@@ -1,3 +1,4 @@
+import tachypy._warnings as warnings_module
 import tachypy.text as text_module
 from tachypy.text import LegacyText
 
@@ -88,3 +89,42 @@ def test_legacy_text_rejects_pygame_backend():
         assert "pillow" in str(exc)
     else:
         raise AssertionError("pygame backend should be rejected")
+
+
+class RaisingImageFont:
+    @staticmethod
+    def truetype(name, size):
+        raise OSError("cannot open resource")
+
+    @staticmethod
+    def load_default():
+        return FakeFont()
+
+
+def test_legacy_text_warns_when_font_load_fails(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    text = LegacyText.__new__(LegacyText)
+    text.font_name = "Nonexistent Font"
+    text.font_size = 24
+    text._pil_imagefont = RaisingImageFont
+
+    font = text._load_pillow_font()
+
+    assert isinstance(font, FakeFont)
+    message = capsys.readouterr().err
+    assert "[TachyPy WARNING]: Text font resolution" in message
+    assert "Nonexistent Font" in message
+
+
+def test_legacy_text_font_fallback_warning_fires_only_once(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    text = LegacyText.__new__(LegacyText)
+    text.font_name = "Nonexistent Font"
+    text.font_size = 24
+    text._pil_imagefont = RaisingImageFont
+
+    text._load_pillow_font()
+    text._load_pillow_font()
+
+    message = capsys.readouterr().err
+    assert message.count("[TachyPy WARNING]: Text font resolution") == 1

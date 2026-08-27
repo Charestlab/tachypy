@@ -2,6 +2,7 @@ import doctest
 
 import pytest
 
+import tachypy._warnings as warnings_module
 import tachypy.scrollbar as scrollbar_module
 from tachypy.scrollbar import Scrollbar
 
@@ -116,11 +117,61 @@ def test_scrollbar_set_value_and_normalized_value(monkeypatch):
     assert sb.get_normalized_value() == pytest.approx(1.0)
 
 
+def test_scrollbar_warns_when_value_is_clamped(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(screen_width=800, screen_height=600, half_bar_length=100)
+    sb.set_value(150)
+
+    message = capsys.readouterr().err
+    assert "[TachyPy WARNING]: Scrollbar set_value" in message
+    assert "silently clamped" in message
+
+
+def test_scrollbar_does_not_warn_for_in_range_value(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(screen_width=800, screen_height=600, half_bar_length=100)
+    sb.set_value(50)
+
+    message = capsys.readouterr().err
+    assert message == ""
+
+
+def test_scrollbar_clamp_warning_fires_only_once(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+
+    sb = Scrollbar(screen_width=800, screen_height=600, half_bar_length=100)
+    sb.set_value(150)
+    sb.set_value(-50)
+    sb.set_normalized_value(2.0)
+
+    message = capsys.readouterr().err
+    assert message.count("[TachyPy WARNING]: Scrollbar set_value") == 1
+
+
 def test_scrollbar_rejects_negative_notch_label_every(monkeypatch):
     monkeypatch.setattr(scrollbar_module, "Text", FakeText)
 
     with pytest.raises(ValueError, match="notch_label_every"):
         Scrollbar(screen_width=800, screen_height=600, notch_label_every=-1)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"num_marks": 1}, "num_marks"),
+        ({"half_bar_length": 0}, "half_bar_length"),
+        ({"content_scale": 0}, "content_scale"),
+    ],
+)
+def test_scrollbar_rejects_invalid_geometry_or_content_scale(monkeypatch, kwargs, match):
+    monkeypatch.setattr(scrollbar_module, "Text", FakeText)
+    with pytest.raises(ValueError, match=match):
+        Scrollbar(screen_width=800, screen_height=600, **kwargs)
 
 
 def test_scrollbar_rejects_notch_labels_combined_with_value_label(monkeypatch):

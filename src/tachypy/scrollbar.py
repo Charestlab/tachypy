@@ -4,6 +4,7 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
+from tachypy._warnings import warn_once
 from tachypy.shapes import Line, center_rect_on_point
 from tachypy.text import Text
 
@@ -56,8 +57,8 @@ class Scrollbar:
         horizontal line. Set to False to allow interaction even when the cursor
         is farther away vertically.
     content_scale : float
-        Pass ``screen.content_scale`` to get sharp end labels on Retina/HiDPI
-        screens.
+        Pass ``screen.content_scale`` for sharp end labels on HiDPI screens.
+        Defaults to ``2.0``; see :doc:`text_rendering` for why.
 
     Example
     -------
@@ -103,7 +104,7 @@ class Scrollbar:
         notch_label_font_scale: float = 0.7,
         show_value_label: bool = False,
         limit_mouse: bool = False,
-        content_scale: float = 1.0,
+        content_scale: float = 2.0,
     ):
         """Create the bar, ticks, labels, and movable marker for the scrollbar."""
         if notch_label_every < 0:
@@ -117,12 +118,16 @@ class Scrollbar:
         self.screen_height = float(screen_height)
         self.position_y = float(position_y)
         self.half_bar_length = float(half_bar_length)
+        if self.half_bar_length <= 0:
+            raise ValueError("half_bar_length must be greater than 0")
         self.bar_thickness = float(bar_thickness)
         self.bar_color = bar_color
         self.half_mark_height = float(half_mark_height)
         self.mark_thickness = float(mark_thickness)
         self.mark_color = mark_color
         self.num_marks = int(num_marks)
+        if self.num_marks < 2:
+            raise ValueError("num_marks must be at least 2")
         self.half_end_height = float(half_end_height)
         self.end_thickness = float(end_thickness)
         self.end_color = end_color
@@ -137,6 +142,8 @@ class Scrollbar:
         self.show_value_label = bool(show_value_label)
         self.limit_mouse = bool(limit_mouse)
         self.content_scale = float(content_scale)
+        if not np.isfinite(self.content_scale) or self.content_scale <= 0:
+            raise ValueError("content_scale must be a finite value greater than 0")
 
         self.center_x = self.screen_width / 2
 
@@ -316,7 +323,17 @@ class Scrollbar:
 
     def set_normalized_value(self, value: float) -> None:
         """Set position from normalized value in [0, 1] (clamped)."""
+        value = float(value)
+        if not np.isfinite(value):
+            raise ValueError("scrollbar value must be finite")
         clamped = float(np.clip(value, 0.0, 1.0))
+        if clamped != value:
+            warn_once(
+                "Scrollbar set_value",
+                "A value outside the expected range was silently clamped "
+                "(set_value expects 0-100, set_normalized_value expects 0-1). "
+                "Check whatever computed it upstream.",
+            )
         self.mobile_line_x = self.min_x + clamped * (self.max_x - self.min_x)
         self._update_mobile_line_geometry()
 

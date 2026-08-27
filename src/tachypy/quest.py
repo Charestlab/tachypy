@@ -141,6 +141,11 @@ class QuestObject:
         This was converted from the Psychtoolbox's QuestCreate function.
         """
         grain = float(grain) # make sure grain is a float
+        tGuessSd = float(tGuessSd)
+        if not np.isfinite(grain) or grain <= 0:
+            raise ValueError('argument "grain" must be a finite value greater than zero.')
+        if not np.isfinite(tGuessSd) or tGuessSd <= 0:
+            raise ValueError('argument "tGuessSd" must be a finite value greater than zero.')
         if range is None:
             dim = 500
         else:
@@ -273,6 +278,12 @@ class QuestObject:
         """
         if quantileOrder is None:
             quantileOrder = self.quantileOrder
+        try:
+            quantileOrder = float(quantileOrder)
+        except (TypeError, ValueError) as err:
+            raise ValueError("quantileOrder must be a number between 0 and 1") from err
+        if not np.isfinite(quantileOrder) or not 0 <= quantileOrder <= 1:
+            raise ValueError("quantileOrder must be a number between 0 and 1")
         p = np.cumsum(self.pdf)
         if len(getinf(p[-1])[0]):
             raise RuntimeError('pdf is not finite')

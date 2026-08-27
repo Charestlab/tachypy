@@ -367,16 +367,16 @@ def run_slider_interaction(
     if input_mode == "mouse_keyboard" and not hasattr(slider, "move_by"):
         raise ValueError("mouse_keyboard mode requires slider.move_by(delta_x, mouse_y)")
     mouse_was_visible = getattr(screen, "mouse_visible", None)
-    if input_mode == "mouse_keyboard" and hasattr(screen, "hide_mouse"):
-        screen.hide_mouse()
     if (movement_speed <= 0 or acceleration <= 0 or not 0 <= pressure_deadzone < 1
             or not -1 <= curve_x <= 0 or not -1 <= curve_y <= 1
-            or edge_margin < 0 or edge_reduction < 0):
+            or edge_margin < 0 or edge_reduction < 0 or mouse_quiet_period < 0):
         raise ValueError("Invalid movement, deadzone, or edge parameters")
     if not 0 <= release_threshold < confirm_threshold <= 1:
         raise ValueError("Require 0 <= release_threshold < confirm_threshold <= 1")
     if validate_input is not None:
         validate_input()
+    if input_mode == "mouse_keyboard" and hasattr(screen, "hide_mouse"):
+        screen.hide_mouse()
     if wait_until is None:
         wait_until = lambda deadline: time.sleep(max(0.0, deadline - clock()))
     if response_handler is not None:

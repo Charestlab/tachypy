@@ -218,6 +218,18 @@ def test_invalid_edge_parameters_are_rejected(parameters):
         )
 
 
+def test_negative_mouse_quiet_period_is_rejected():
+    with pytest.raises(ValueError, match="edge"):
+        run_slider_interaction(
+            slider=FakeSlider(),
+            screen=FakeScreen(),
+            response_handler=FakeResponse(),
+            control_reader=FakeInput([SliderControls()]),
+            wait_until=lambda _: None,
+            mouse_quiet_period=-0.01,
+        )
+
+
 def test_held_key_accelerates_until_maximum_speed():
     clock_value = padded_clock([0.0, 0.0, 0.1, 0.2, 0.3])
     value, _ = run_slider_interaction(
