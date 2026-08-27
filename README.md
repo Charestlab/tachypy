@@ -1,5 +1,9 @@
 # TachyPy
+[![CI](https://github.com/Charestlab/tachypy/actions/workflows/ci.yml/badge.svg)](https://github.com/Charestlab/tachypy/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/tachypy.svg)](https://pypi.org/project/tachypy/)
+[![Python versions](https://img.shields.io/pypi/pyversions/tachypy.svg)](https://pypi.org/project/tachypy/)
 [![Docs Status](https://readthedocs.org/projects/tachypy/badge/?version=latest)](https://tachypy.readthedocs.io/en/latest/?badge=latest)
+[![License](https://img.shields.io/github/license/Charestlab/tachypy.svg)](https://github.com/Charestlab/tachypy/blob/main/LICENSE)
 
 TachyPy is a psychophysics engine for Python focused on precise visual timing with
 OpenGL rendering, a GLFW-first display/input backend, and experiment-friendly
@@ -53,7 +57,8 @@ software timestamps alone.
 - Psychophysics helpers (`make_gabor`, gratings, normalization, dithering).
 - Audio playback utility (`Audio`) backed by `tachyaudio`.
 - Optional Wooting analog-keyboard integration (`tachypy[wooting]`): on-screen
-  pressure feedback and `WOOTING_ACQUISITION` straight from `tachypy`.
+  pressure feedback, analog scrollbar interaction, and
+  `WOOTING_ACQUISITION` straight from `tachypy`.
 - Test suite for core logic and regressions.
 
 ## Installation
@@ -88,7 +93,8 @@ pip install -e ".[wooting]"     # Wooting analog-keyboard integration
 ### Wooting analog-keyboard integration
 
 `pip install "tachypy[wooting]"` adds support for Wooting analog keyboards
-(pressure acquisition, logging, and on-screen visual feedback):
+(pressure acquisition, logging, visual feedback, and analog scrollbar
+interaction):
 
 ```python
 from tachypy import Screen, WOOTING_ACQUISITION
@@ -183,7 +189,7 @@ TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
 - `GLSystemText` supports system font selection by family name, fallback list
   (e.g. `"Avenir Next, Helvetica, Arial"`), or direct font file path.
 - For production instruction text, prefer `Text`.
-- The old texture-backed constructor is backbenched as `tachypy.text.LegacyText`.
+- The old texture-backed constructor is retained as `tachypy.text.LegacyText`.
 
 ## API Naming
 

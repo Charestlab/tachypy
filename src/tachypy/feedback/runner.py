@@ -13,12 +13,14 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Sequence
 
+from tachypy.screen import LoopPacer
+
 from .model import PressureFeedbackConfig, PressureFeedbackState
 from .widgets import InteractiveFixationCross, PressureFeedbackWidget
 
 DEFAULT_EXIT_KEYS: tuple[str, ...] = ("escape", "esc", "enter", "return", "space", "q")
 
-_TICK_INTERVAL = 1.0 / 1000.0  # 1000 Hz polling
+_POLL_INTERVAL = 1.0 / 1000.0  # pressure/event polling
 
 
 def _exit_requested(response_handler, exit_keys: set[str]) -> bool:
@@ -92,6 +94,12 @@ def run_light_press_visual(
     verbose : bool, default=False
         Reserved for future logging hooks.
 
+    Notes
+    -----
+    Pressure polling targets ~1 kHz between display submissions. Rendering is
+    paced separately; a blocking ``flip()`` can briefly pause same-thread
+    polling.
+
     Returns
     -------
     bool
@@ -110,8 +118,9 @@ def run_light_press_visual(
         if hasattr(response_handler, "_probed_keys"):
             response_handler._probed_keys.update(merged)
 
-    next_t = time.perf_counter()
-    deadline = None if timeout_seconds is None else next_t + timeout_seconds
+    start = time.perf_counter()
+    pacer = LoopPacer(screen, wait_until, start, poll_interval=_POLL_INTERVAL)
+    deadline = None if timeout_seconds is None else start + timeout_seconds
 
     while True:
         now = time.perf_counter()
@@ -120,29 +129,25 @@ def run_light_press_visual(
         if _exit_requested(response_handler, exit_key_set):
             return False
 
-        frame_background_color = background_color() if callable(background_color) else background_color
-        if hasattr(screen, "fill"):
-            screen.fill(frame_background_color)
-
         left, right = read_pair()
         state.update(left_pressure=float(left), right_pressure=float(right), now=now)
 
-        widget.update(state)
-        widget.draw()
-        if overlay_drawables:
-            for drawable in overlay_drawables:
-                drawable.draw()
+        if pacer.render_due(now) or state.is_ready:
+            frame_background_color = background_color() if callable(background_color) else background_color
+            if hasattr(screen, "fill"):
+                screen.fill(frame_background_color)
+            widget.update(state)
+            widget.draw()
+            if overlay_drawables:
+                for drawable in overlay_drawables:
+                    drawable.draw()
+            screen.flip()
+            now = time.perf_counter()
+            pacer.after_render(now)
+            if state.is_ready:
+                return True
 
-        screen.flip()
-
-        if state.is_ready:
-            return True
-
-        next_t += _TICK_INTERVAL
-        now2 = time.perf_counter()
-        if next_t < (now2 - 0.10):
-            next_t = now2 + _TICK_INTERVAL
-        wait_until(next_t)
+        pacer.wait(now)
 
 
 class VisualPressureFeedbackMixin:
@@ -218,6 +223,11 @@ class VisualPressureFeedbackMixin:
         verbose : bool, default=False
             Reserved for future logging hooks.
 
+        Notes
+        -----
+        Pressure polling targets ~1 kHz between display submissions. A
+        blocking ``flip()`` can briefly pause same-thread polling.
+
         Returns
         -------
         bool
@@ -248,6 +258,9 @@ class VisualPressureFeedbackMixin:
         target_keys = list(target_keys)
         if len(target_keys) != 2:
             raise ValueError("wait_light_press_visual requires exactly two target keys")
+        validate = getattr(self, "validate_analog_keys", None)
+        if callable(validate):
+            validate(target_keys)
 
         if widget is not None:
             conflicting = [

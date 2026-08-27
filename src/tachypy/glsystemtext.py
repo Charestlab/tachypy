@@ -1,6 +1,7 @@
 """System-font OpenGL text rendering (FreeType + HarfBuzz) with graceful fallback."""
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -36,6 +37,7 @@ from OpenGL.GL import (
     glVertex2f,
 )
 
+from tachypy._warnings import warn_once
 from tachypy.gltext import GLText
 
 try:
@@ -83,7 +85,7 @@ class GLSystemText:
         align: str = "center",
         vertical_align: str = "center",
         fallback_renderer: str = "bitmap",
-        content_scale: float = 1.0,
+        content_scale: float = 2.0,
     ):
         """Create a system-font text renderer with OpenGL quad drawing.
 
@@ -114,9 +116,25 @@ class GLSystemText:
             Renderer used when FreeType/HarfBuzz are unavailable:
             ``"bitmap"`` (default) or ``"sdf"``.
         content_scale : float
-            Pass ``screen.content_scale`` to get sharp text on Retina/HiDPI
-            displays (e.g. 2.0); omit for standard displays.
+            Pass ``screen.content_scale`` for sharp text on HiDPI screens.
+            Defaults to ``2.0``; see :doc:`text_rendering` for why.
+
+        Notes
+        -----
+        Construction is not cheap: it loads the font file and builds a
+        FreeType face + HarfBuzz font from scratch (a few milliseconds,
+        independent of ``content_scale``), which alone can exceed a single
+        frame budget at high refresh rates. Build one instance up front and
+        reuse it across frames/trials, updating content with
+        :meth:`set_text` (cheap: only newly-seen glyphs are rasterized,
+        already-seen ones are served from this instance's glyph cache).
+        Never recreate a ``Text``/``GLSystemText`` inside a per-frame or
+        per-trial loop. See :doc:`text_rendering` for measurements.
         """
+        fallback_renderer = str(fallback_renderer).strip().lower()
+        if fallback_renderer not in {"bitmap", "sdf"}:
+            raise ValueError("fallback_renderer must be 'bitmap' or 'sdf'.")
+
         self.text = text
         self.dest_rect = dest_rect
         self.font_name = font_name
@@ -136,15 +154,53 @@ class GLSystemText:
         self._line_height = float(font_size)
         self._ascender = float(font_size * 0.8)
         self._content_scale = float(content_scale)
-
+        if not math.isfinite(self._content_scale) or self._content_scale <= 0:
+            raise ValueError("content_scale must be a finite value greater than 0.")
         if HAS_FREETYPE and HAS_HARFBUZZ:
             font_path = self.resolve_font_path(self.font_name)
             if font_path is not None:
+                if not self._font_path_matches_query(font_path, self.font_name):
+                    warn_once(
+                        "GLSystemText font resolution",
+                        f"Requested font '{self.font_name}' was not found; using the "
+                        f"last-resort font file '{font_path.name}' instead."
+                        "\n\t\tPass an absolute path or an installed font name if "
+                        "the exact typeface matters.",
+                    )
                 try:
                     self._init_system_font(font_path)
                     self._enabled = True
-                except Exception:
+                except Exception as err:
                     self._enabled = False
+                    warn_once(
+                        "GLSystemText font resolution",
+                        f"Found a font file for '{self.font_name}' but couldn't load it "
+                        f"({err}); falling back to the '{fallback_renderer}' renderer, "
+                        "which looks different (blockier, no hinting)."
+                        "\n\t\tCheck that the font file isn't corrupt, or try a different "
+                        "font_name.",
+                    )
+            else:
+                warn_once(
+                    "GLSystemText font resolution",
+                    f"No system font file found matching '{self.font_name}'; falling "
+                    f"back to the '{fallback_renderer}' renderer, which looks different "
+                    "(blockier, no hinting)."
+                    "\n\t\tCheck the font name/path, or pass an absolute font file path "
+                    "directly.",
+                )
+        else:
+            missing = ", ".join(
+                name for name, available in (("freetype-py", HAS_FREETYPE), ("uharfbuzz", HAS_HARFBUZZ))
+                if not available
+            )
+            warn_once(
+                "GLSystemText font resolution",
+                f"{missing} not installed; falling back to the '{fallback_renderer}' "
+                f"renderer instead of system font '{self.font_name}', which looks "
+                "different (blockier, no hinting)."
+                "\n\t\tInstall with: pip install 'tachypy[system_text]'",
+            )
 
         if not self._enabled:
             if fallback_renderer == "sdf":
@@ -197,6 +253,22 @@ class GLSystemText:
         """Normalize a font query into searchable tokens."""
         normalized = re.sub(r"[^a-z0-9]+", " ", str(font_name).lower()).strip()
         return [part for part in normalized.split() if part]
+
+    @classmethod
+    def _font_path_matches_query(cls, font_path: Path, font_name: str) -> bool:
+        """Return whether a resolved path matches one requested font query."""
+        direct = Path(str(font_name).split(",", 1)[0].strip()).expanduser()
+        if direct == font_path:
+            return True
+
+        stem_tokens = cls._tokenize_font_query(font_path.stem)
+        stem_joined = " ".join(stem_tokens)
+        queries = [query.strip() for query in str(font_name).split(",") if query.strip()]
+        for query in queries:
+            tokens = cls._tokenize_font_query(query)
+            if tokens and any(token in stem_tokens or token in stem_joined for token in tokens):
+                return True
+        return False
 
     # Style qualifiers penalized in resolve_font_path() unless requested.
     _STYLE_WORDS = {
@@ -403,6 +475,21 @@ class GLSystemText:
             return self.text.splitlines() or [self.text]
 
         max_width = float(self.dest_rect[2] - self.dest_rect[0])
+        natural_width = max(
+            (self._measure_line(line) for line in self.text.splitlines() or [""]),
+            default=0.0,
+        )
+        if natural_width > max_width:
+            warn_once(
+                "GLSystemText layout",
+                f"Text width ({natural_width:.1f} logical pixels) exceeds dest_rect "
+                f"width ({max_width:.1f}); it will wrap automatically at whitespace "
+                f"within dest_rect, or overflow if a line cannot be broken. Minimum "
+                f"dest_rect width to display this text without wrapping: "
+                f"{natural_width:.1f} logical pixels."
+                "\n\t\tUse a wider rectangle, add spaces between words, or insert '\\n' "
+                "to force a line break.",
+            )
         lines: List[str] = []
         raw_lines = self.text.splitlines() or [""]
 
@@ -414,7 +501,8 @@ class GLSystemText:
             current = ""
             for word in words:
                 candidate = f"{current} {word}".strip()
-                if current == "" or self._measure_line(candidate) <= max_width:
+                candidate_width = self._measure_line(candidate)
+                if current == "" or candidate_width <= max_width:
                     current = candidate
                 else:
                     lines.append(current)
@@ -425,7 +513,10 @@ class GLSystemText:
         return lines
 
     def set_text(self, new_text: str):
-        """Update content text."""
+        """Update content text in place (cheap -- reuses this instance's
+        glyph cache; only glyphs not already seen are rasterized). Prefer
+        this over constructing a new ``Text`` on a per-frame/per-trial path.
+        """
         self.text = new_text
         if self._fallback is not None:
             self._fallback.set_text(new_text)
@@ -448,6 +539,18 @@ class GLSystemText:
         block_top = min((i * self._line_height + top for i, (_, top, _) in enumerate(line_bounds)), default=0.0)
         block_bottom = max((i * self._line_height + bottom for i, (_, _, bottom) in enumerate(line_bounds)), default=0.0)
         total_height = max(1.0, block_bottom - block_top)
+
+        if self.dest_rect and total_height > float(self.dest_rect[3] - self.dest_rect[1]):
+            minimum_width = max(line_widths, default=0.0)
+            minimum_height = total_height
+            warn_once(
+                "GLSystemText layout",
+                f"Text block height ({total_height:.1f}) exceeds dest_rect height "
+                f"({float(self.dest_rect[3] - self.dest_rect[1]):.1f}); text will extend "
+                f"outside the rectangle. Minimum dest_rect size for this layout: "
+                f"{minimum_width:.1f} x {minimum_height:.1f} logical pixels."
+                "\n\t\tUse a taller rectangle, smaller text, or fewer lines.",
+            )
 
         if self.dest_rect:
             x1, y1, x2, y2 = self.dest_rect

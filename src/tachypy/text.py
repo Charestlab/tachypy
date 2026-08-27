@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 
+from tachypy._warnings import warn_once
 from OpenGL.GL import (
     GL_BLEND,
     GL_CLAMP_TO_EDGE,
@@ -50,7 +51,9 @@ class LegacyText:
         line_spacing=4,
         backend="auto",
     ):
-        """Create a text texture, optionally wrapping it inside ``dest_rect``."""
+        """Create a text texture, optionally wrapping it inside ``dest_rect``.
+
+        """
         self._font_available = True
         self._warned_font_unavailable = False
         self.backend = str(backend).lower()
@@ -100,7 +103,15 @@ class LegacyText:
         """Load the requested Pillow font or fall back to the default font."""
         try:
             return self._pil_imagefont.truetype(self.font_name, self.font_size)
-        except Exception:
+        except Exception as err:
+            warn_once(
+                "Text font resolution",
+                f"Could not load font '{self.font_name}' ({err}); falling back to "
+                "Pillow's built-in default font, which looks very different (small, "
+                "fixed-size, no anti-aliasing)."
+                "\n\t\tPass a valid font file path or an installed font name if you "
+                "expected your requested font.",
+            )
             return self._pil_imagefont.load_default()
 
     def _measure_text(self, text_value):
@@ -121,6 +132,21 @@ class LegacyText:
             return
 
         max_width = self.dest_rect[2] - self.dest_rect[0]
+        natural_width = max(
+            (self._measure_text(line)[0] for line in self.text.splitlines() or [""]),
+            default=0.0,
+        )
+        if natural_width > max_width:
+            warn_once(
+                "Text layout",
+                f"Text width ({natural_width:.1f} logical pixels) exceeds dest_rect "
+                f"width ({max_width:.1f}); it will wrap automatically at whitespace "
+                f"within dest_rect, or overflow if a line cannot be broken. Minimum "
+                f"dest_rect width to display this text without wrapping: "
+                f"{natural_width:.1f} logical pixels."
+                "\n\t\tUse a wider rectangle, add spaces between words, or insert '\\n' "
+                "to force a line break.",
+            )
         self.lines = []
         raw_lines = self.text.splitlines() or [""]
         for raw_line in raw_lines:
@@ -131,7 +157,8 @@ class LegacyText:
             line = ""
             for word in words:
                 test_line = f"{line} {word}".strip()
-                if self._measure_text(test_line)[0] <= max_width or line == "":
+                test_width = self._measure_text(test_line)[0]
+                if test_width <= max_width or line == "":
                     line = test_line
                 else:
                     self.lines.append(line)
@@ -153,6 +180,16 @@ class LegacyText:
         line_sizes = [self._measure_text(line if line else " ") for line in lines]
         max_width = max(width for width, _ in line_sizes)
         total_height = sum(height for _, height in line_sizes) + (len(line_sizes) - 1) * self.line_spacing
+
+        if self.dest_rect and total_height > self.dest_rect[3] - self.dest_rect[1]:
+            warn_once(
+                "Text layout",
+                f"Text block height ({total_height:.1f}) exceeds dest_rect height "
+                f"({float(self.dest_rect[3] - self.dest_rect[1]):.1f}); text will extend "
+                f"outside the rectangle. Minimum dest_rect size for this layout: "
+                f"{max_width:.1f} x {total_height:.1f} logical pixels."
+                "\n\t\tUse a taller rectangle, smaller text, or fewer lines.",
+            )
 
         image = self._pil_image.new("RGBA", (max_width, total_height), (0, 0, 0, 0))
         drawer = self._pil_draw.Draw(image)

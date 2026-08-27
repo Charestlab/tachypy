@@ -2,6 +2,7 @@
 
 from typing import Dict, List, Sequence, Tuple
 
+from tachypy._warnings import warn_once
 from OpenGL.GL import (
     GL_BLEND,
     GL_ONE_MINUS_SRC_ALPHA,
@@ -109,7 +110,9 @@ class GLText:
         align: str = "center",
         vertical_align: str = "center",
     ):
-        """Create a bitmap OpenGL text object with rectangle-based layout."""
+        """Create a bitmap OpenGL text object with rectangle-based layout.
+
+        """
         self.text = text
         self.dest_rect = dest_rect
         self.color = color
@@ -123,7 +126,26 @@ class GLText:
         self.glyph_h = 7
         self._glyph_metrics_cache: Dict[str, Tuple[int, int, int]] = {}
         self.lines: List[str] = []
+        self._warn_unsupported_characters(self.text)
         self._split_text_into_lines()
+
+    @staticmethod
+    def _warn_unsupported_characters(text: str) -> None:
+        """Warn when bitmap text will replace characters with ``?``."""
+        unsupported = sorted({
+            ch for ch in str(text)
+            if ch not in _GLYPHS and ch.upper() not in _GLYPHS and ch not in {"\n", "\r"}
+        })
+        if unsupported:
+            shown = ", ".join(repr(ch) for ch in unsupported[:8])
+            if len(unsupported) > 8:
+                shown += f", ... ({len(unsupported)} total)"
+            warn_once(
+                "GLText glyph resolution",
+                f"Unsupported character(s) {shown} will be rendered as '?'."
+                "\n\t\tUse GLSystemText/Text for Unicode and accented text, or "
+                "replace the characters explicitly.",
+            )
 
     def _glyph_metrics(self, ch: str) -> Tuple[int, int, int]:
         """
@@ -176,7 +198,21 @@ class GLText:
             return
 
         max_width = self.dest_rect[2] - self.dest_rect[0]
-
+        natural_width = max(
+            (self._measure_line(line)[0] for line in self.text.splitlines() or [""]),
+            default=0.0,
+        )
+        if natural_width > max_width:
+            warn_once(
+                "GLText layout",
+                f"Text width ({natural_width:.1f} logical pixels) exceeds dest_rect "
+                f"width ({max_width:.1f}); it will wrap automatically at whitespace "
+                f"within dest_rect, or overflow if a line cannot be broken. Minimum "
+                f"dest_rect width to display this text without wrapping: "
+                f"{natural_width:.1f} logical pixels."
+                "\n\t\tUse a wider rectangle, add spaces between words, or insert '\\n' "
+                "to force a line break.",
+            )
         self.lines = []
         raw_lines = self.text.splitlines() or [""]
         for raw in raw_lines:
@@ -209,6 +245,7 @@ class GLText:
     def set_text(self, new_text: str):
         """Update displayed text and recompute line wrapping."""
         self.text = new_text
+        self._warn_unsupported_characters(self.text)
         self._split_text_into_lines()
 
     def set_dest_rect(self, dest_rect):
@@ -228,6 +265,18 @@ class GLText:
             line_heights.append(h)
 
         total_height = sum(line_heights) + (len(lines) - 1) * self.line_spacing * self.pixel_size
+
+        if self.dest_rect and total_height > self.dest_rect[3] - self.dest_rect[1]:
+            minimum_width = max(line_widths, default=0.0)
+            minimum_height = total_height
+            warn_once(
+                "GLText layout",
+                f"Text block height ({total_height:.1f}) exceeds dest_rect height "
+                f"({float(self.dest_rect[3] - self.dest_rect[1]):.1f}); text will extend "
+                f"outside the rectangle. Minimum dest_rect size for this layout: "
+                f"{minimum_width:.1f} x {minimum_height:.1f} logical pixels."
+                "\n\t\tUse a taller rectangle, smaller text, or fewer lines.",
+            )
 
         if self.dest_rect:
             x1, y1, x2, y2 = self.dest_rect

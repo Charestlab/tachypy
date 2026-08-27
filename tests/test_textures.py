@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+import tachypy._warnings as warnings_module
 import tachypy.textures as textures_module
 from tachypy.textures import Texture
 
@@ -56,3 +57,14 @@ def test_texture_rejects_dual_rect_args(monkeypatch):
 
     with pytest.raises(ValueError, match="either"):
         Texture(image, a_rect=[0, 0, 1, 1], rect=[0, 0, 2, 2])
+
+
+def test_texture_warns_when_normalized_image_is_converted_to_uint8(monkeypatch, capsys):
+    patch_gl(monkeypatch)
+    monkeypatch.setattr(warnings_module, "_warned", set())
+
+    Texture(np.full((2, 2, 3), 0.5, dtype=np.float32))
+
+    message = capsys.readouterr().err
+    assert "Texture image conversion" in message
+    assert "normalized to [0, 1]" in message

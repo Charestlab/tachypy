@@ -5,4 +5,5 @@ analog pressures). Console entry points:
 
 - ``tachypy-wooting-fixation-demo`` → :func:`visual_fixation_demo.main`
 - ``tachypy-wooting-mini-bw`` → :func:`mini_bw_experiment.main`
+- ``tachypy-wooting-slider-lab`` → :func:`slider_lab.main`
 """

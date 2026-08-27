@@ -48,9 +48,9 @@ def main() -> int:
         black_tex = Texture(np.zeros((256, 256, 3), dtype=np.uint8))
 
         label = Text(text=".", font_size=28, color=(0, 0, 0),
-                     dest_rect=(0, margin, w, margin + 44))
+                     dest_rect=(0, margin, w, margin + 44), content_scale=screen.content_scale)
         score = Text(text="Score: —", font_size=24, color=(0, 0, 0),
-                     dest_rect=(w - 240, margin + 50, w - margin, margin + 122))
+                     dest_rect=(w - 240, margin + 50, w - margin, margin + 122), content_scale=screen.content_scale)
 
         yes_code, no_code = convert_char_to_keycode([YES_KEY, NO_KEY])
 
@@ -68,6 +68,7 @@ def main() -> int:
             font_size=26,
             color=(0, 0, 0),
             dest_rect=(int(w * 0.1), int(h * 0.15), int(w * 0.9), int(h * 0.85)),
+            content_scale=screen.content_scale,
         )
         screen.fill(BG)
         instructions.draw()

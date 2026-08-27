@@ -1,7 +1,9 @@
 import pytest
 
+import tachypy._warnings as warnings_module
 import tachypy.glsystemtext as glsys_module
 import tachypy.text as text_module
+from tachypy import Text
 from tachypy.glsystemtext import GLSystemText
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +44,29 @@ def test_text_alias_points_to_glsystemtext():
     assert text_module.Text is GLSystemText
 
 
+def test_public_text_warns_when_entire_text_exceeds_rectangle(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(glsys_module, "HAS_FREETYPE", True)
+    monkeypatch.setattr(glsys_module, "HAS_HARFBUZZ", True)
+    monkeypatch.setattr(
+        GLSystemText,
+        "resolve_font_path",
+        staticmethod(lambda font_name: Path("/tmp/A.ttf")),
+    )
+    monkeypatch.setattr(GLSystemText, "_init_system_font", lambda self, font_path: None)
+
+    text = Text("one two three four", dest_rect=[0, 0, 20, 80], font_name="A")
+    monkeypatch.setattr(text, "_measure_line", lambda line: float(len(line) * 10))
+
+    text._split_lines()
+
+    message = capsys.readouterr().err
+    assert "GLSystemText layout" in message
+    assert "Text width" in message
+    assert "wrap automatically at whitespace" in message
+    assert "insert '\\n'" in message
+
+
 def test_glsystemtext_fallback_mutators(monkeypatch):
     monkeypatch.setattr(glsys_module, "HAS_FREETYPE", False)
     monkeypatch.setattr(glsys_module, "HAS_HARFBUZZ", False)
@@ -53,6 +78,93 @@ def test_glsystemtext_fallback_mutators(monkeypatch):
 
     assert text._fallback.text == "next"
     assert text._fallback.dest_rect == [10, 10, 120, 70]
+
+
+def test_glsystemtext_warns_when_deps_unavailable(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(glsys_module, "HAS_FREETYPE", False)
+    monkeypatch.setattr(glsys_module, "HAS_HARFBUZZ", False)
+    monkeypatch.setattr(glsys_module, "GLText", FakeFallback)
+
+    GLSystemText("hello", dest_rect=[0, 0, 100, 50], font_name="Avenir")
+
+    message = capsys.readouterr().err
+    assert "[TachyPy WARNING]: GLSystemText font resolution" in message
+    assert "freetype-py" in message and "uharfbuzz" in message
+    assert "Avenir" in message
+
+
+def test_glsystemtext_warns_when_font_not_found(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(glsys_module, "HAS_FREETYPE", True)
+    monkeypatch.setattr(glsys_module, "HAS_HARFBUZZ", True)
+    monkeypatch.setattr(GLSystemText, "resolve_font_path", staticmethod(lambda font_name: None))
+    monkeypatch.setattr(glsys_module, "GLText", FakeFallback)
+
+    GLSystemText("hello", dest_rect=[0, 0, 100, 50], font_name="Nonexistent Font")
+
+    message = capsys.readouterr().err
+    assert "[TachyPy WARNING]: GLSystemText font resolution" in message
+    assert "No system font file found matching 'Nonexistent Font'" in message
+
+
+def test_glsystemtext_warns_when_font_init_fails(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(glsys_module, "HAS_FREETYPE", True)
+    monkeypatch.setattr(glsys_module, "HAS_HARFBUZZ", True)
+    monkeypatch.setattr(GLSystemText, "resolve_font_path", staticmethod(lambda font_name: Path("/tmp/fake.ttf")))
+
+    def raising_init(self, font_path):
+        raise OSError("corrupt font")
+
+    monkeypatch.setattr(GLSystemText, "_init_system_font", raising_init)
+    monkeypatch.setattr(glsys_module, "GLText", FakeFallback)
+
+    GLSystemText("hello", dest_rect=[0, 0, 100, 50], font_name="Corrupt Font")
+
+    message = capsys.readouterr().err
+    assert "[TachyPy WARNING]: GLSystemText font resolution" in message
+    assert "couldn't load it" in message
+
+
+def test_glsystemtext_warns_when_last_resort_font_is_used(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(glsys_module, "HAS_FREETYPE", True)
+    monkeypatch.setattr(glsys_module, "HAS_HARFBUZZ", True)
+    monkeypatch.setattr(GLSystemText, "resolve_font_path", staticmethod(lambda font_name: Path("/tmp/Arial.ttf")))
+    monkeypatch.setattr(GLSystemText, "_init_system_font", lambda self, font_path: None)
+    monkeypatch.setattr(glsys_module, "GLText", FakeFallback)
+
+    GLSystemText("hello", dest_rect=[0, 0, 100, 50], font_name="Missing Typeface")
+
+    message = capsys.readouterr().err
+    assert "Requested font 'Missing Typeface' was not found" in message
+    assert "Arial.ttf" in message
+
+
+@pytest.mark.parametrize("content_scale", [0, -1, float("nan")])
+def test_glsystemtext_rejects_invalid_content_scale(content_scale):
+    with pytest.raises(ValueError, match="content_scale"):
+        GLSystemText("hello", content_scale=content_scale)
+
+
+def test_glsystemtext_rejects_unknown_fallback_renderer():
+    with pytest.raises(ValueError, match="fallback_renderer"):
+        GLSystemText("hello", fallback_renderer="vector")
+
+
+
+def test_glsystemtext_font_fallback_warning_fires_only_once(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    monkeypatch.setattr(glsys_module, "HAS_FREETYPE", False)
+    monkeypatch.setattr(glsys_module, "HAS_HARFBUZZ", False)
+    monkeypatch.setattr(glsys_module, "GLText", FakeFallback)
+
+    GLSystemText("first", dest_rect=[0, 0, 100, 50], font_name="Avenir")
+    GLSystemText("second", dest_rect=[0, 0, 100, 50], font_name="Avenir")
+
+    message = capsys.readouterr().err
+    assert message.count("[TachyPy WARNING]: GLSystemText font resolution") == 1
 
 
 def test_resolve_font_path_accepts_direct_path(tmp_path):

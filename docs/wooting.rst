@@ -5,9 +5,9 @@ TachyPy integrates with **TachyWooting**, a hardware toolbox for Wooting analog
 keyboards (analog pressure acquisition,
 hierarchical HDF5 logging, light-press / release readiness checks). The hardware
 toolbox is usable on its own; this page documents only what becomes available
-**inside TachyPy** once the integration is installed — chiefly on-screen visual
-pressure feedback. For the full keyboard/logging reference, see TachyWooting's own
-documentation.
+**inside TachyPy** once the integration is installed — on-screen visual pressure
+feedback and analog scrollbar responses. For the full keyboard/logging
+reference, see TachyWooting's own documentation.
 
 Installation
 ------------
@@ -24,8 +24,9 @@ the keyboard through the top-level ``tachypy`` namespace:
 One import surface
 ------------------
 
-The enriched ``WOOTING_ACQUISITION`` — the hardware acquisition class plus TachyPy
-visual feedback — is available straight from the top-level package:
+The enriched ``WOOTING_ACQUISITION`` — the hardware acquisition class plus
+TachyPy visual feedback and analog scrollbar interaction — is available straight
+from the top-level package:
 
 .. code-block:: python
 
@@ -46,24 +47,28 @@ How the enrichment works
 ------------------------
 
 ``WOOTING_ACQUISITION`` is enriched in ``tachypy/wooting/__init__.py``: it is a
-thin subclass that combines TachyWooting's hardware acquisition class with
-:class:`~tachypy.feedback.VisualPressureFeedbackMixin`. The mixin is what adds the
-``wait_light_press_visual`` method — nothing else changes:
+thin subclass that combines TachyWooting's hardware acquisition class with two
+TachyPy mixins. ``VisualPressureFeedbackMixin`` adds
+``wait_light_press_visual`` and ``AnalogSliderMixin`` adds ``interact_slider``:
 
 .. code-block:: python
 
    from tachywooting import WOOTING_ACQUISITION as _BaseAcquisition
    from tachypy.feedback import VisualPressureFeedbackMixin
+   from tachypy.scrollbar_interaction import AnalogSliderMixin
 
-   class WOOTING_ACQUISITION(_BaseAcquisition, VisualPressureFeedbackMixin):
-       """Hardware acquisition + logging (base) + TachyPy visual feedback (mixin)."""
+   class WOOTING_ACQUISITION(
+       _BaseAcquisition, VisualPressureFeedbackMixin, AnalogSliderMixin
+   ):
+       """Hardware acquisition plus TachyPy feedback and slider interaction."""
 
 This keeps the hardware package (TachyWooting) completely free of TachyPy — the
-visual method is grafted on here, on TachyPy's side. Because the mixin only relies
-on the :class:`~tachypy.feedback.PressureSource` contract (reading pressures plus
-the light-press thresholds), the very same pattern enriches any future analog
-keyboard: subclass its base acquisition class and mix in
-``VisualPressureFeedbackMixin``.
+TachyPy features are grafted on here, on the integration side. The visual mixin
+relies on the :class:`~tachypy.feedback.PressureSource` contract, while the
+slider mixin relies on ``read_pressures(keys)`` and optional
+``validate_analog_keys(keys)``. The same pattern can enrich another analog
+keyboard by subclassing its acquisition class and selecting the applicable
+TachyPy mixins.
 
 First-time setup
 ----------------
@@ -159,6 +164,173 @@ fall outside the acceptable interval.
 .. image:: gifs/wooting-visual-fixation-demo.gif
    :alt: Interactive fixation cross with real-time pressure feedback
    :width: 100%
+
+Analog scrollbar responses
+--------------------------
+
+The Wooting acquisition provides pressure-controlled responses for any
+configured :class:`~tachypy.scrollbar.Scrollbar` through ``interact_slider``.
+For normal mouse-only use and visual customization, see :doc:`scrollbar`.
+
+Quick start
+~~~~~~~~~~~
+
+Pass a normal TachyPy scrollbar to the enriched Wooting acquisition. The
+defaults are ``Z`` to decrease, ``C`` to increase, and ``X`` to confirm:
+
+.. code-block:: python
+
+   from tachypy import Screen, Scrollbar, WOOTING_ACQUISITION
+
+   acq = WOOTING_ACQUISITION()
+   acq.initialize_keyboard()
+   screen = Screen(fullscreen=False)
+   scrollbar = Scrollbar(screen_width=screen.width, screen_height=screen.height,
+                         position_y=screen.height / 2,
+                         content_scale=screen.content_scale)
+
+   try:
+       value, reaction_time = acq.interact_slider(
+           slider=scrollbar,
+           screen=screen,
+       )
+   finally:
+       acq.uninitialize_keyboard()
+       screen.close()
+
+The method returns ``(value, reaction_time)`` on confirmation and
+``(None, None)`` when the participant presses ``Escape`` or closes the window.
+A default :class:`~tachypy.responses.ResponseHandler` is created automatically.
+
+Controls and movement
+~~~~~~~~~~~~~~~~~~~~~
+
+The controls are:
+
+.. list-table:: Default analog controls
+   :header-rows: 1
+   :widths: 18 28 54
+
+   * - Key
+     - Role
+     - Behaviour
+   * - ``Z``
+     - Decrease
+     - Moves toward the lower end and accelerates while held.
+   * - ``C``
+     - Increase
+     - Moves toward the higher end and accelerates while held.
+   * - ``X``
+     - Confirm
+     - Selects the current value when its pressure crosses the confirmation threshold.
+
+Use any three distinct analog keys by passing ``decrease_key``, ``increase_key``
+and ``confirm_key``. TachyPy validates their Wooting analog mappings before the
+loop starts and raises if a configured key is unavailable.
+
+.. code-block:: python
+
+   value, reaction_time = acq.interact_slider(
+       slider=scrollbar, screen=screen,
+       decrease_key="a", increase_key="d", confirm_key="space")
+
+Pressure only determines whether a movement key is active. Once it exceeds
+``pressure_deadzone``, speed increases with hold duration:
+
+.. math::
+
+   speed = movement\_speed \times
+   \max\left(0, curve\_y + (1 - curve\_y)
+   \min\left(\frac{acceleration \times hold\_duration}{movement\_speed}
+   - curve\_x, 1\right)^2\right)
+
+Releasing the key or changing direction resets speed immediately. By default,
+the ramp starts slightly above zero and reaches maximum speed after 0.75
+seconds. This keeps taps precise while sustained presses still travel quickly.
+
+The complete default movement profile is:
+
+.. code-block:: python
+
+   value, reaction_time = acq.interact_slider(
+       slider=scrollbar,
+       screen=screen,
+       pressure_deadzone=15 / 255,
+       acceleration=100,
+       movement_speed=100,
+       curve_x=-0.25,
+       curve_y=-0.03,
+       edge_margin=10,
+       edge_reduction=0.6,
+   )
+
+``curve_x`` is the horizontal shift: ``0`` uses the full curve, ``-0.25``
+begins 25% along it, and ``-1`` starts at maximum speed. ``curve_y`` is the
+vertical shift as a proportion of maximum speed: ``0.1`` places the quadratic
+vertex at 10% of ``movement_speed``. Negative values move it below zero; that
+part of the curve is clamped to zero speed.
+
+Within ``edge_margin`` units of an endpoint, outward keyboard movement is
+progressively reduced. ``edge_reduction=1`` is linear; larger values produce a
+stronger slowdown. Set either edge parameter to ``0`` to disable it. Movement
+back toward the center is always unaffected.
+
+``X`` cannot confirm while ``Z`` or ``C`` is active. Confirmation is
+edge-triggered, and ``X`` must be released below ``release_threshold`` once
+before it can confirm. ``Z`` and ``C`` remain responsive from the first sample;
+when both are pressed, pressure determines the active key: the stronger key
+controls direction and equal pressures cancel.
+
+Input modes and customization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The default ``input_mode="keyboard"`` uses analog ``Z``/``C`` movement and
+``X`` confirmation. Use ``input_mode="mouse_keyboard"`` to allow both mouse
+and analog-key movement, with either a mouse click or ``X`` for confirmation:
+
+.. code-block:: python
+
+   value, reaction_time = acq.interact_slider(
+       slider=scrollbar,
+       screen=screen,
+       input_mode="mouse_keyboard",
+       confirm_key="x",
+   )
+
+The cursor is hidden and recentered at screen edges. A left click or ``X``
+confirms after ``mouse_quiet_period`` seconds without mouse movement. Pressure
+on any analog key temporarily gives the keyboard exclusive control. ``X``
+must be released and pressed again if it was held during mouse movement.
+
+The interaction loop does not recreate the scrollbar, so all of its visual
+customization remains available. Pass ``drawables`` for instruction text or
+other TachyPy objects, and tune ``initial_value``, ``pressure_deadzone``,
+``acceleration``, ``movement_speed``, ``curve_x``, ``curve_y``, ``edge_margin``,
+and ``edge_reduction`` as needed. Set ``initial_value=None`` to begin at the
+scrollbar's existing value, including the selection left by the preceding trial.
+
+Interactive lab and API
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Run the interactive demo and tuning lab with:
+
+.. code-block:: bash
+
+   tachypy-wooting-slider-lab
+
+Drag the controls to change deadzone, acceleration, maximum speed, horizontal
+and vertical curve position, edge margin, and edge reduction. The graph shows
+speed by hold duration and tracks the active ``Z``/``C`` key. Press and release
+``X`` to start, match each blue target, then confirm with ``X``; the next trial
+starts automatically after release. Click a parameter during a trial to pause
+and adjust it, then press and release ``X`` to resume. The lab uses the same
+:meth:`~tachypy.scrollbar_interaction.AnalogSliderMixin.interact_slider`
+method as an experiment and preserves the last selected position. It does not
+save or model responses; it is only a visual parameter-tuning tool.
+
+The complete API, including the keyboard-agnostic
+:func:`~tachypy.scrollbar_interaction.run_slider_interaction`, is documented in
+:mod:`tachypy.scrollbar_interaction`.
 
 Logging and a full experiment loop
 ----------------------------------

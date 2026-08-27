@@ -3,7 +3,8 @@
 This module is the single import surface for using a Wooting analog keyboard
 *inside* TachyPy experiments. It re-exports TachyWooting's public API and adds an
 enriched :class:`WOOTING_ACQUISITION` that gains TachyPy visual feedback
-(``wait_light_press_visual``) on top of the hardware acquisition class.
+(``wait_light_press_visual``) and analog scrollbar interaction
+(``interact_slider``) on top of the hardware acquisition class.
 
 TachyPy core never imports this module, so ``pip install tachypy`` stays usable
 without a keyboard. Importing this module without TachyWooting installed raises a
@@ -20,6 +21,7 @@ except ImportError as exc:  # pragma: no cover - exercised via packaging
     ) from exc
 
 from tachypy.feedback import VisualPressureFeedbackMixin
+from tachypy.scrollbar_interaction import AnalogSliderMixin
 
 # Re-export the keyboard's public API so experiments need only one import.
 from tachywooting import (  # noqa: F401
@@ -34,12 +36,14 @@ from tachywooting import (  # noqa: F401
 from tachywooting.visualize import visualize, visualize_all_keys  # noqa: F401
 
 # TachyPy-enriched acquisition class that combines Wooting's hardware acquisition and TachyPy's visual feedback.
-class WOOTING_ACQUISITION(_tachywooting.WOOTING_ACQUISITION, VisualPressureFeedbackMixin):
+class WOOTING_ACQUISITION(_tachywooting.WOOTING_ACQUISITION, VisualPressureFeedbackMixin, AnalogSliderMixin):
     """Wooting acquisition enriched with TachyPy visual feedback.
 
     Identical to :class:`tachywooting.WOOTING_ACQUISITION` (acquisition, logging,
     readiness checks) plus :meth:`~tachypy.feedback.VisualPressureFeedbackMixin.wait_light_press_visual`
-    for on-screen pressure feedback.
+    for on-screen pressure feedback and
+    :meth:`~tachypy.scrollbar_interaction.AnalogSliderMixin.interact_slider`
+    for pressure-controlled scrollbar responses.
     """
 
 

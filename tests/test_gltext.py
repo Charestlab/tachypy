@@ -1,4 +1,5 @@
 import tachypy.gltext as gltext_module
+import tachypy._warnings as warnings_module
 from tachypy.gltext import GLText
 
 
@@ -35,3 +36,27 @@ def test_gltext_variable_width_metrics(monkeypatch):
     narrow_w, _ = text._measure_line("...")
 
     assert wide_w > narrow_w
+
+
+def test_gltext_warns_when_character_is_replaced_by_question_mark(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+
+    GLText("café", dest_rect=[0, 0, 200, 80])
+
+    message = capsys.readouterr().err
+    assert "GLText glyph resolution" in message
+    assert "'é'" in message
+    assert "rendered as '?'" in message
+
+
+def test_gltext_warns_when_entire_text_exceeds_rectangle(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+
+    GLText("one two three four", dest_rect=[0, 0, 20, 80], pixel_size=3)
+
+    message = capsys.readouterr().err
+    assert "GLText layout" in message
+    assert "Text width" in message
+    assert "Minimum dest_rect width to display this text without wrapping" in message
+    assert "wrap automatically at whitespace" in message
+    assert "insert '\\n'" in message

@@ -5,6 +5,8 @@ import time
 from types import SimpleNamespace
 from typing import Optional
 
+from tachypy._warnings import warn_once
+
 
 _GLFW_KEY_MAP = {
     "space": "KEY_SPACE",
@@ -195,6 +197,13 @@ class ResponseHandler:
         key_name = self._normalize_key_name(key)
         attr = _GLFW_KEY_MAP.get(key_name)
         if attr is None:
+            warn_once(
+                "ResponseHandler key resolution",
+                f"'{key}' is not a recognized key name, so it will never register as "
+                "pressed, released, or held."
+                "\n\t\tCheck for a typo in keys_to_listen or in a direct "
+                "is_key_down()/was_key_pressed() call.",
+            )
             return None
         return getattr(self._glfw, attr, None)
 

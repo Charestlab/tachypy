@@ -15,6 +15,7 @@ extensions = [
     "sphinx.ext.napoleon",
 ]
 autosummary_generate = True
+autodoc_preserve_defaults = True
 autodoc_mock_imports = [
     "OpenGL",
     "glfw",

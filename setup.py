@@ -18,7 +18,7 @@ setup(
         'system_text': ['freetype-py>=2.4', 'uharfbuzz>=0.39'],
         'glfw': ['glfw>=2.7'],
         'audio': [],
-        'wooting': ['tachywooting>=0.2.2'],
+        'wooting': ['tachywooting>=0.2.4'],
     },
     python_requires='>=3.10',
     author='Ian Charest, Mathias Salvas-Hebert and Frederic Gosselin',
@@ -41,6 +41,7 @@ setup(
             'tachypy-clock-demo=tachypy.examples.clock_timer_demo:main',
             'tachypy-wooting-fixation-demo=tachypy.wooting.demos.visual_fixation_demo:main',
             'tachypy-wooting-mini-bw=tachypy.wooting.demos.mini_bw_experiment:main',
+            'tachypy-wooting-slider-lab=tachypy.wooting.demos.slider_lab:main',
         ],
     },
 )
