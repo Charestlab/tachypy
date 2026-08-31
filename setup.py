@@ -14,10 +14,6 @@ setup(
     install_requires=requires,
     extras_require={
         'test': ['pytest>=7.0', 'pytest-cov>=5.0', 'ruff>=0.6'],
-        'text': ['Pillow>=10.0'],
-        'system_text': ['freetype-py>=2.4', 'uharfbuzz>=0.39'],
-        'glfw': ['glfw>=2.7'],
-        'audio': [],
         'wooting': ['tachywooting>=0.2.4'],
     },
     python_requires='>=3.10',

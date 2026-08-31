@@ -1,35 +1,19 @@
 Text Rendering
 ==============
 
-TachyPy offers multiple text paths depending on precision and dependency needs.
+TachyPy has one text class: ``Text``.
 
 Text class
 ----------
 
-``Text`` is TachyPy's polished system-font renderer. It is the friendly public
-name for ``GLSystemText`` and uses FreeType + HarfBuzz when available, with an
-OpenGL bitmap fallback.
+``Text`` renders system TrueType/OpenType fonts with FreeType + HarfBuzz as
+OpenGL quads. ``font_name`` accepts a family name, a comma-separated fallback
+list (e.g. ``"Avenir Next, Helvetica, Arial"``), or a direct font-file path.
 
-OpenGL text renderers
----------------------
-
-- ``GLText``: bitmap glyph renderer in pure OpenGL.
-- ``GLTextSDF``: signed-distance-field renderer for smoother scaling.
-- ``GLSystemText``: explicit backward-compatible name for ``Text``.
-  You can pass a family name, comma-separated fallback list, or a direct
-  font-file path.
-
-The OpenGL renderers are backend-independent and do not require
-Pillow.
-
-Recommended usage
------------------
-
-- Use ``Text`` for high-quality instruction screens and overlays.
-- Use ``GLSystemText`` only when you want the explicit historical class name.
-- Use ``GLTextSDF`` when scalable text quality matters and shaping is simple.
-- The old Pillow texture-backed constructor is retained as
-  ``tachypy.text.LegacyText`` for compatibility.
+FreeType and HarfBuzz are required dependencies. If ``font_name`` doesn't
+resolve, TachyPy tries built-in defaults (Helvetica, Arial, DejaVu Sans,
+Liberation Sans, Noto Sans, Times New Roman) and warns; construction raises
+only if none resolve.
 
 HiDPI and Retina displays
 --------------------------
@@ -49,7 +33,7 @@ resolution — otherwise text appears blurry.
 Why the default is ``2.0``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``Text``/``GLSystemText`` and ``Scrollbar`` default ``content_scale`` to
+``Text`` and ``Scrollbar`` default ``content_scale`` to
 ``2.0`` (matching every Retina/HiDPI display) instead of ``1.0``, as a
 safety net: neither class is linked to a ``Screen``, so a caller who
 forgets this parameter can't be warned. At ``1.0`` that mistake renders
@@ -61,7 +45,7 @@ recommendation to skip it.
 Performance: build once, update with ``set_text()``
 -----------------------------------------------------
 
-Constructing a ``Text``/``GLSystemText`` loads the font file and builds a
+Constructing a ``Text`` loads the font file and builds a
 fresh FreeType face + HarfBuzz font every time — roughly **2-3 ms before a
 single glyph is rasterized**, regardless of ``content_scale``. That alone
 can exceed a whole frame budget at high refresh rates (240 Hz = 4.17 ms),
@@ -69,7 +53,7 @@ so recreating a ``Text`` inside a per-frame or per-trial loop is a common
 way to silently blow it.
 
 Build the object **once** and update content with
-:meth:`~tachypy.glsystemtext.GLSystemText.set_text` instead — it reuses the
+:meth:`~tachypy.text.Text.set_text` instead — it reuses the
 glyph cache, so only newly-seen glyphs are rasterized:
 
 .. code-block:: python

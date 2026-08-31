@@ -1,5 +1,6 @@
 import pytest
 
+import tachypy._warnings as warnings_module
 from fake_glfw import FakeGlfw, FakeScreen
 from tachypy.responses import ResponseHandler
 
@@ -51,6 +52,41 @@ def test_space_aliases_and_integer_keycodes():
     assert handler.is_key_down("spacebar") is True
     assert handler.was_key_pressed(FakeGlfw.KEY_SPACE) is True
     assert handler.is_key_down(FakeGlfw.KEY_SPACE) is True
+
+
+def test_warns_on_unrecognized_key_name(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
+
+    handler.is_key_down("spac")  # typo
+
+    message = capsys.readouterr().err
+    assert "[TachyPy WARNING]: ResponseHandler key resolution" in message
+    assert "'spac'" in message
+
+
+def test_unrecognized_key_warning_fires_only_once(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
+
+    handler.is_key_down("spac")
+    handler.is_key_down("spac")
+
+    message = capsys.readouterr().err
+    assert message.count("[TachyPy WARNING]: ResponseHandler key resolution") == 1
+
+
+@pytest.mark.parametrize("name", ["shift", "ctrl", "control", "alt", "option", "super", "cmd", "command"])
+def test_generic_modifier_names_resolve_without_warning(monkeypatch, capsys, name):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    screen = FakeScreen()
+    handler = ResponseHandler(screen=screen)
+
+    handler.is_key_down(name)
+
+    assert capsys.readouterr().err == ""
 
 
 def test_mouse_transitions_and_position():

@@ -54,7 +54,10 @@ blocks, so using it here would mean blocking on every scheduling check
 instead of just when a frame is actually due. A wrong estimate only affects
 how often frames are submitted, never presentation correctness.
 
-``desired_refresh_rate`` feeds both, but not consistently:
+``desired_refresh_rate`` feeds both, but a scheduled interaction loop can't
+represent "no rate limit" the way ``tick()`` can — it needs a positive
+interval to pace ``render_due()`` against, so ``0``/negative falls back to a
+real rate there instead, with a ``[TachyPy WARNING]``:
 
 .. list-table::
    :header-rows: 1
@@ -65,18 +68,12 @@ how often frames are submitted, never presentation correctness.
    * - ``None`` (default)
      - Monitor's max rate at current resolution, or 60 Hz if unknown
      - Same
-   * - ``0``
+   * - ``0`` or negative, e.g. ``-1``
      - No rate limit — ``flip()`` runs flat out
-     - Same as ``None`` (still rate-limited)
+     - Same as ``None``, and warns that it can't honor "no rate limit"
    * - positive, e.g. ``120``
      - Paces to that rate
      - Same
-   * - negative, e.g. ``-1``
-     - No rate limit, same as ``0``
-     - Raises ``ValueError``
-
-Known rough edge, not deliberate design — don't rely on ``0``/negative
-behavior being stable across the two paths.
 
 This normally costs nothing: the monitor's rate is detected correctly, so
 both paths use it directly. TachyPy paces to the *highest* rate at the

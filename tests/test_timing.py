@@ -1,5 +1,6 @@
 import pytest
 
+import tachypy._warnings as warnings_module
 from tachypy.screen import LoopPacer, get_render_interval
 
 
@@ -30,12 +31,31 @@ def test_render_interval_uses_conservative_fallback_without_screen_rate():
     assert get_render_interval(object()) == pytest.approx(1 / 60)
 
 
-def test_render_interval_rejects_nonpositive_rate():
+def test_render_interval_rejects_nonpositive_screen_rate():
+    # ValueError is for a genuinely malformed screen rate, not for a
+    # deliberate desired_refresh_rate<=0 (see the tests below for that).
     screen = Screen()
-    screen.vsync = False
-    screen.desired_refresh_rate = -1
+    screen._max_mode_refresh_rate = -1
     with pytest.raises(ValueError, match="positive"):
         get_render_interval(screen)
+
+
+@pytest.mark.parametrize("nonpositive_rate", [0, -1])
+def test_render_interval_falls_back_and_warns_for_nonpositive_desired_rate(monkeypatch, capsys, nonpositive_rate):
+    # desired_refresh_rate<=0 means "unthrottled" for flip()/tick(), but a
+    # scheduled loop can't represent that (it needs a positive interval to
+    # pace against) -- it must fall back to a real rate instead of crashing
+    # or silently ignoring the request, and say so.
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    screen = Screen()
+    screen.vsync = False
+    screen.desired_refresh_rate = nonpositive_rate
+
+    assert get_render_interval(screen) == pytest.approx(1 / 180)
+
+    message = capsys.readouterr().err
+    assert "[TachyPy WARNING]: LoopPacer render interval" in message
+    assert f"desired_refresh_rate={nonpositive_rate}" in message
 
 
 def test_loop_pacer_render_due_advances_schedule():

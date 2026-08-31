@@ -76,26 +76,42 @@ class Texture:
         if image.ndim != 3 or image.shape[2] != 3:
             raise ValueError("image must have shape (H, W, 3)")
         if image.dtype != np.uint8:
+            detail = None
             if np.issubdtype(image.dtype, np.number):
-                finite = np.isfinite(image).all()
-                image_min = float(np.nanmin(image)) if image.size else 0.0
-                image_max = float(np.nanmax(image)) if image.size else 0.0
-                if not finite:
-                    detail = "contains NaN or infinite values"
-                elif 0.0 <= image_min and image_max <= 1.0:
-                    detail = "looks normalized to [0, 1], not to the documented [0, 255] range"
-                elif image_min < 0.0 or image_max > 255.0:
-                    detail = f"contains values outside [0, 255] (min={image_min:g}, max={image_max:g})"
+                finite_mask = np.isfinite(image)
+                finite = finite_mask.all()
+                finite_values = image[finite_mask]
+                if finite_values.size:
+                    image_min = float(np.min(finite_values))
+                    image_max = float(np.max(finite_values))
                 else:
-                    detail = f"has dtype {image.dtype} and will be truncated when converted"
+                    image_min = image_max = float("nan")
+                range_note = f"(min={image_min:g}, max={image_max:g})"
+                if not finite:
+                    detail = f"contains NaN or infinite values {range_note}"
+                elif 0.0 <= image_min and image_max <= 1.0 and image_max > 0.0:
+                    detail = f"looks normalized to [0, 1], not to the documented [0, 255] range {range_note}"
+                elif image_min < 0.0 or image_max > 255.0:
+                    detail = f"contains values outside [0, 255] {range_note}"
+                elif np.any(image != np.floor(image)):
+                    # astype() truncates fractional values, not rounds.
+                    detail = (
+                        f"has dtype {image.dtype} with fractional values that will be "
+                        f"truncated (not rounded) when cast to uint8 {range_note}"
+                    )
+                # else: integer-valued and in range -- lossless cast, no warning.
             else:
                 detail = f"has dtype {image.dtype} and may not convert as intended"
-            warn_once(
-                "Texture image conversion",
-                f"Converting an image to uint8: it {detail}."
-                "\n\t\tPass a uint8 RGB image, or convert/scale it explicitly before "
-                "creating the Texture.",
-            )
+            if detail is not None:
+                warn_once(
+                    "Texture image conversion",
+                    f"Converting an image to uint8: it {detail}."
+                    "\n\t\tPass a uint8 RGB image, or convert/scale it explicitly before "
+                    "creating the Texture.",
+                )
+            if np.issubdtype(image.dtype, np.number) and not finite:
+                # Deterministic, and avoids NumPy's own RuntimeWarnings.
+                image = np.nan_to_num(image, nan=0.0, posinf=255.0, neginf=0.0)
             image = image.astype(np.uint8)
         return image
 
