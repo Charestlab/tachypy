@@ -133,6 +133,21 @@ _GLFW_KEY_MAP = {
     "menu": "KEY_MENU",
 }
 
+_KEY_ALIASES = {
+    "spacebar": "space",
+    "esc": "escape",
+    "shift": "left_shift",
+    "ctrl": "left_ctrl",
+    "control": "left_ctrl",
+    "alt": "left_alt",
+    "option": "left_alt",
+    "super": "left_super",
+    "cmd": "left_super",
+    "command": "left_super",
+    "win": "left_super",
+    "windows": "left_super",
+}
+
 
 class ResponseHandler:
     """Poll a GLFW-backed Screen and track participant keyboard/mouse responses."""
@@ -184,11 +199,7 @@ class ResponseHandler:
         if key_name == " ":
             return "space"
         normalized = key_name.strip().lower()
-        if normalized == "spacebar":
-            return "space"
-        if normalized == "esc":
-            return "escape"
-        return normalized
+        return _KEY_ALIASES.get(normalized, normalized)
 
     def _glfw_keycode(self, key) -> Optional[int]:
         """Map a key name or keycode to a GLFW keycode."""
@@ -485,8 +496,7 @@ class ResponseHandler:
                     raise RuntimeError("Timed callback failed.") from e
                 callback_done = True
 
-            # Honor keypresses detected in this polling cycle before applying quit 
-            # or timeout checks, preventing boundary events from being dropped.
+            # Honor this cycle's keypresses before quit/timeout, so boundary events aren't dropped.
             if keys is None:
                 if self.key_down_events:
                     return next(iter(self.key_down_events)), elapsed

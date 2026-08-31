@@ -123,7 +123,8 @@ class FakeScreen:
 
 class FakeMouseScreen(FakeScreen):
     vsync = False
-    desired_refresh_rate = -1
+    desired_refresh_rate = None
+    _max_mode_refresh_rate = -1  # deliberately invalid, to make LoopPacer construction fail
 
     def __init__(self):
         self.mouse_visible = True
@@ -251,6 +252,51 @@ def test_held_key_accelerates_until_maximum_speed():
         wait_until=lambda _: None,
     )
     assert value == pytest.approx(51 + 1 / 3)
+
+
+class RecordingSlider(FakeSlider):
+    """Like FakeSlider, but records raw set_value() calls without clamping,
+    to verify the interaction loop itself keeps values in range."""
+
+    def __init__(self):
+        super().__init__()
+        self.value = 95.0
+        self.recorded_values = []
+
+    def set_value(self, value):
+        self.recorded_values.append(value)
+        self.value = value
+
+
+def test_holding_key_past_the_edge_never_passes_out_of_range_value_to_set_value():
+    # Regression: pushing a slider to its edge via a held key is normal,
+    # expected interaction, not a caller mistake -- the loop must clamp
+    # before calling set_value(), or every such interaction would trip
+    # Scrollbar's out-of-range clamp warning.
+    slider = RecordingSlider()
+    clock_value = padded_clock([0.0, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5])
+    run_slider_interaction(
+        slider=slider,
+        screen=FakeScreen(),
+        response_handler=FakeResponse(),
+        control_reader=FakeInput([
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(increase=0.8),
+            SliderControls(confirm=0.8),
+        ]),
+        movement_speed=1000,
+        acceleration=1000,
+        curve_x=0,
+        curve_y=0,
+        edge_margin=0,
+        clock=lambda: next(clock_value),
+        wait_until=lambda _: None,
+    )
+    assert slider.recorded_values  # the loop actually drove it to the edge
+    assert all(0.0 <= v <= 100.0 for v in slider.recorded_values)
 
 
 def test_quadratic_integration_is_independent_of_step_size():

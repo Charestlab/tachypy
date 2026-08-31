@@ -470,7 +470,9 @@ def run_slider_interaction(
             distance *= _edge_scale(
                 slider.get_value(), direction, edge_margin, edge_reduction,
             )
-            slider.set_value(slider.get_value() + direction * distance)
+            # Clamp here, not in set_value(): hitting an edge via a held key isn't a mistake.
+            target = max(0.0, min(100.0, slider.get_value() + direction * distance))
+            slider.set_value(target)
         else:
             movement_hold_time = 0.0
         previous_direction = direction
@@ -486,10 +488,7 @@ def run_slider_interaction(
                         return finish((slider.get_value(), now - start))
 
         if (
-            # A held X pressed during mouse movement must be released/repressed
-            # before confirming, preventing simultaneous input sources. Blocked
-            # on movement_keys_held (not movement_active), since a tied Z/C
-            # press still holds both keys even though it resolves to no motion.
+            # movement_keys_held, not movement_active: a tied Z/C press still blocks confirm.
             confirm_armed
             and previous_confirm < confirm_threshold <= controls.confirm
             and not movement_keys_held

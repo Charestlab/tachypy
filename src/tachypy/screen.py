@@ -45,13 +45,29 @@ def get_render_interval(screen) -> float:
 
       * with ``desired_refresh_rate``: use the desired rate;
       * without it: use the same max-at-resolution rate, then 60 Hz.
+      * ``desired_refresh_rate <= 0`` requests unthrottled ``flip()``
+        timing (see :class:`Screen`), which a scheduled loop like
+        :class:`LoopPacer` can't represent (it needs a positive interval to
+        pace against); it falls back to the same max-at-resolution rate,
+        then 60 Hz, with a warning.
 
     The interval only schedules loop updates. VSync controls presentation
     synchronization; manual pacing does not.
     """
     rate = getattr(screen, "_max_mode_refresh_rate", None)
     if not getattr(screen, "vsync", True):
-        rate = getattr(screen, "desired_refresh_rate", None) or rate
+        desired = getattr(screen, "desired_refresh_rate", None)
+        if desired is not None and desired <= 0:
+            warn_once(
+                "LoopPacer render interval",
+                f"desired_refresh_rate={desired} requests unthrottled flip() timing, "
+                f"but this scheduled render loop needs a positive rate to pace "
+                f"against; using {rate or 60.0:g} Hz instead."
+                "\n\t\tPass a positive desired_refresh_rate to pace this loop "
+                "to a specific rate.",
+            )
+        else:
+            rate = desired or rate
     rate = 60.0 if rate is None else float(rate)
     if rate <= 0:
         raise ValueError("the render rate must be positive")
@@ -167,6 +183,10 @@ class Screen:
         the monitor's highest reported rate at the current resolution, then
         60 Hz. When VSync is enabled, TachyPy warns if this value exceeds
         that rate but does not use it to change presentation timing.
+        A scheduled loop (:class:`LoopPacer`, used by
+        :func:`~tachypy.scrollbar_interaction.run_slider_interaction`) can't
+        run unthrottled -- ``0``/negative falls back to the same rate as an
+        unset one there instead, with a warning.
     grab_input : bool, default=True
         Whether GLFW captures the mouse inside the window.
     backend : str, default="glfw"

@@ -23,15 +23,6 @@ Core modules
 .. automodule:: tachypy.text
    :members:
 
-.. automodule:: tachypy.gltext
-   :members:
-
-.. automodule:: tachypy.gltext_sdf
-   :members:
-
-.. automodule:: tachypy.glsystemtext
-   :members:
-
 .. automodule:: tachypy.scrollbar
    :members:
 

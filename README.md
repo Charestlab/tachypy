@@ -49,11 +49,8 @@ software timestamps alone.
 - OpenGL stimulus rendering (`Texture`, `Shapes`, fixation, etc.).
 - GLFW-first window/input handling via `Screen` for tighter display control.
 - Backend-aware input handling through `ResponseHandler`.
-- Multiple text paths:
-  - `Text` (system fonts via FreeType + HarfBuzz; polished default),
-  - `GLText` (OpenGL bitmap glyphs),
-  - `GLTextSDF` (distance-field text),
-  - `GLSystemText` (backward-compatible explicit name for `Text`).
+- `Text` for text rendering: system fonts via FreeType + HarfBuzz, drawn as
+  OpenGL quads.
 - Psychophysics helpers (`make_gabor`, gratings, normalization, dithering).
 - Audio playback utility (`Audio`) backed by `tachyaudio`.
 - Optional Wooting analog-keyboard integration (`tachypy[wooting]`): on-screen
@@ -69,10 +66,10 @@ Install base package:
 pip install tachypy
 ```
 
-The base install includes GLFW for display/input, PyOpenGL, Pillow text
-support, pyserial for serial/trigger workflows, and TachyAudio for audio playback.
-Pygame support has been removed; GLFW is the supported display/input backend.
-TachyAudio is currently published as a beta release; TachyPy requires `tachyaudio>=0.2.0b2`, which includes the Windows wheel fix. If your pip resolver refuses pre-releases, pass `--pre` explicitly.
+The base install includes GLFW, PyOpenGL, FreeType, HarfBuzz, pyserial, and
+TachyAudio. Pygame is no longer supported. TachyAudio is currently beta;
+TachyPy requires `tachyaudio>=0.2.0b2`. If pip refuses pre-releases, pass
+`--pre` explicitly.
 
 Editable install for development:
 
@@ -87,7 +84,6 @@ Optional extras:
 ```bash
 pip install -e ".[test]"        # pytest
 pip install -e ".[wooting]"     # Wooting analog-keyboard integration
-# Pillow, FreeType, HarfBuzz, GLFW, and audio are included in the base install
 ```
 
 ### Wooting analog-keyboard integration
@@ -162,7 +158,7 @@ python clock_timer_demo.py
 Use `Esc` to quit, click `START`/`STOP`/`RESET`, or use `Space` and `R`.
 For development, use `tachypy-clock-demo --windowed` or `python clock_timer_demo.py --windowed`.
 
-Choose a font for demo text rendering with GLFW `Text`/`GLSystemText`:
+Choose a font for demo text rendering with GLFW `Text`:
 
 ```bash
 TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
@@ -183,13 +179,11 @@ TACHYPY_FONT="Avenir Next, Helvetica, Arial" python example_tachypy.py
 
 ## Text Rendering Notes
 
-- `Text` is the polished system-font renderer and is equivalent to `GLSystemText`.
-- `GLText`/`GLTextSDF`/`GLSystemText` render text directly in OpenGL and are
-  backend-independent.
-- `GLSystemText` supports system font selection by family name, fallback list
-  (e.g. `"Avenir Next, Helvetica, Arial"`), or direct font file path.
-- For production instruction text, prefer `Text`.
-- The old texture-backed constructor is retained as `tachypy.text.LegacyText`.
+- `Text` is the only renderer. It uses FreeType + HarfBuzz and draws OpenGL
+  quads.
+- `font_name` accepts a family, comma-separated fallback list (for example,
+  `"Avenir Next, Helvetica, Arial"`), or direct font path. Missing fonts use a
+  built-in default with a warning; construction raises only if none resolve.
 
 ## API Naming
 
@@ -234,7 +228,7 @@ re-sync project webhooks from the RTD project settings.
 
 - `screen.py`: display/context lifecycle and backend abstraction.
 - `responses.py`: keyboard/mouse event handling and key-state queries.
-- `text.py`, `gltext.py`, `gltext_sdf.py`, `glsystemtext.py`: text rendering.
+- `text.py`: text rendering (`Text`).
 - `textures.py`, `shapes.py`, `draggable.py`, `scrollbar.py`: visual primitives.
 - `psychophysics.py`: stimulus generation and normalization utilities.
 - `audio.py`: sound playback and timing helpers.
