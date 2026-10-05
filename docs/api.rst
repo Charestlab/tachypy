@@ -44,3 +44,22 @@ never import a keyboard package; they render feedback for any object satisfying
 
 .. automodule:: tachypy.feedback
    :members:
+
+Instruction demos
+-----------------
+
+Scripted keypad animations to play while presenting instructions (see
+:doc:`wooting`). They never import a keyboard package.
+
+.. autoclass:: tachypy.instruction_demos.GifUwuFixationCross
+   :members: start, draw, is_finished
+
+.. autoclass:: tachypy.instruction_demos.GifUwuScrollbar
+   :members: start, draw, is_finished
+
+.. autoclass:: tachypy.instruction_demos.GifUwuHoldTrial
+   :members: start, draw, is_finished
+
+.. autoclass:: tachypy.instruction_demos.HoldDemoPhase
+
+.. autoclass:: tachypy.instruction_demos.TrialDemoFrame

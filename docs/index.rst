@@ -1,6 +1,8 @@
 TachyPy Documentation
 =====================
 
+|ci| |pypi| |pyversions| |docs| |license|
+
 TachyPy is a psychophysics engine for Python with OpenGL rendering, backend
 abstractions for display/input, and helper utilities for experiment workflows.
 

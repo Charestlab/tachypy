@@ -55,7 +55,8 @@ software timestamps alone.
 - Audio playback utility (`Audio`) backed by `tachyaudio`.
 - Optional Wooting analog-keyboard integration (`tachypy[wooting]`): on-screen
   pressure feedback, analog scrollbar interaction, and
-  `WOOTING_ACQUISITION` straight from `tachypy`.
+  `WOOTING_ACQUISITION` straight from `tachypy`. Animated keypad demos
+  (`tachypy.instruction_demos`) can be played while presenting instructions.
 - Test suite for core logic and regressions.
 
 ## Installation
@@ -100,8 +101,16 @@ acq.initialize_keyboard()
 acq.wait_light_press_visual(target_keys=["c", "z"], screen=Screen(fullscreen=False))
 ```
 
+Scripted animations of the keypad (fixation-cross hold, slider) can be shown
+while presenting the instructions, to explain the principle before participants
+use the keys:
+
+```python
+from tachypy.instruction_demos import GifUwuFixationCross, GifUwuScrollbar
+```
+
 See the [Wooting docs page](https://tachypy.readthedocs.io/en/latest/wooting.html)
-for details.
+for details and gifs.
 
 ### Audio dependency
 

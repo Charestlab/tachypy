@@ -48,13 +48,24 @@ VSync only blocks ``flip()`` while events are being pumped on some platforms
 
 ``get_render_interval()`` only reads the ``vsync`` flag to pick which rate to
 use — the monitor's highest rate at the current resolution when on,
-``desired_refresh_rate`` when off — never to observe VSync itself: the
+``desired_refresh_rate`` when off. With a positive fullscreen refresh request,
+it instead uses the selected mode's reported rate when VSync is on. It never
+observes VSync itself: the
 vertical-blank signal is only observable by calling ``flip()``, which
 blocks, so using it here would mean blocking on every scheduling check
 instead of just when a frame is actually due. A wrong estimate only affects
 how often frames are submitted, never presentation correctness.
 
-``desired_refresh_rate`` feeds both, but a scheduled interaction loop can't
+A positive ``desired_refresh_rate`` is passed to GLFW's ``REFRESH_RATE`` hint
+before window creation. In fullscreen mode GLFW selects the closest supported
+mode, so an exact rate is not guaranteed. TachyPy re-reads the selected mode
+and warns when the reported rate differs from the request. In windowed mode,
+GLFW ignores the hint: only OS display settings/compositor policy can change
+the display refresh rate. TachyPy warns about this limitation; with VSync off,
+the requested rate still controls software pacing.
+
+For manual pacing with VSync off, ``desired_refresh_rate`` feeds both
+``tick()`` and interaction-loop scheduling, but a scheduled interaction loop can't
 represent "no rate limit" the way ``tick()`` can — it needs a positive
 interval to pace ``render_due()`` against, so ``0``/negative falls back to a
 real rate there instead, with a ``[TachyPy WARNING]``:
@@ -76,8 +87,8 @@ real rate there instead, with a ``[TachyPy WARNING]``:
      - Same
 
 This normally costs nothing: the monitor's rate is detected correctly, so
-both paths use it directly. TachyPy paces to the *highest* rate at the
-current resolution rather than whatever the current mode reports, since
+both paths use it directly. TachyPy normally paces to the *highest* rate at the
+current resolution (unless an explicit fullscreen rate was requested), since
 adaptive-refresh displays (e.g. ProMotion) can otherwise get stuck at a
 transient idle rate. The 60 Hz fallback only applies when GLFW can't report
 any rate at all — and guesses low rather than high, since an over-eager
@@ -86,12 +97,20 @@ schedule can stall input polling (same thread) more than a slow one.
 Screen initialization warnings
 -------------------------------
 
-``Screen`` can print up to three ``[TachyPy WARNING]`` diagnostics to
+``Screen`` can print the following ``[TachyPy WARNING]`` diagnostics to
 stderr at construction, each firing at most once:
 
 ``screen_number`` out of range
    Falls back to monitor 0, listing every detected monitor's name and max
    refresh rate.
+
+Windowed refresh request
+   GLFW ignores the refresh-rate hint in windowed mode. Use fullscreen or
+   configure the OS display settings to change the physical display rate.
+
+Fullscreen rate differs from request
+   GLFW reports a different (or unknown) rate after creating the window.
+   Requests select the closest supported mode rather than forcing unsupported rates.
 
 Requested rate exceeds the display
    ``desired_refresh_rate`` exceeds the monitor's highest rate at the

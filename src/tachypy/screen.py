@@ -40,7 +40,8 @@ def get_render_interval(screen) -> float:
     * VSync on: use the monitor's highest reported rate at the current
       resolution, not just whatever the *current* mode happens to report
       (adaptive-refresh displays, e.g. ProMotion, can otherwise get stuck
-      pacing to a transient idle rate).
+      pacing to a transient idle rate). With a positive fullscreen refresh
+      request, use the selected mode's reported rate instead.
     * VSync off:
 
       * with ``desired_refresh_rate``: use the desired rate;
@@ -55,6 +56,9 @@ def get_render_interval(screen) -> float:
     synchronization; manual pacing does not.
     """
     rate = getattr(screen, "_max_mode_refresh_rate", None)
+    if (getattr(screen, "vsync", True) and getattr(screen, "fullscreen", False)
+            and (getattr(screen, "desired_refresh_rate", None) or 0) > 0):
+        rate = getattr(screen, "_mode_refresh_rate", None) or rate
     if not getattr(screen, "vsync", True):
         desired = getattr(screen, "desired_refresh_rate", None)
         if desired is not None and desired <= 0:
@@ -147,7 +151,9 @@ class Screen:
     * VSync is enabled by default and recommended for experiments.
     * With VSync on, TachyPy paces to the monitor's highest reported rate at
       the current resolution; this is not a measurement of photon onset.
-    * A ``desired_refresh_rate`` above that rate produces a warning.
+    * A positive ``desired_refresh_rate`` requests a fullscreen display mode.
+      With VSync on, scheduling then uses the selected mode's reported rate.
+      GLFW cannot set the display refresh rate of a windowed window.
     * With VSync off, ``desired_refresh_rate`` manually paces frames but does
       not synchronize them to the display and may cause tearing.
 
@@ -177,12 +183,16 @@ class Screen:
         Synchronize buffer swaps with the monitor's refresh cycle. This is the
         recommended setting for experiments.
     desired_refresh_rate : int, optional
-        Manual pacing rate used only when ``vsync=False``. ``0`` or a negative
+        Positive values are passed to GLFW as a fullscreen refresh-rate hint;
+        GLFW selects the closest supported mode, which may differ. In windowed
+        mode GLFW ignores this hint and the OS controls the display rate.
+        Also sets the manual pacing rate when ``vsync=False``. ``0`` or a negative
         value explicitly disables manual pacing (``flip()`` is left
         unthrottled), which ``None`` does not — an unset rate falls back to
         the monitor's highest reported rate at the current resolution, then
-        60 Hz. When VSync is enabled, TachyPy warns if this value exceeds
-        that rate but does not use it to change presentation timing.
+        60 Hz. With VSync enabled and a positive fullscreen request, loop
+        scheduling uses the selected mode's reported rate. A warning is emitted
+        if GLFW reports a different rate or the request is windowed.
         A scheduled loop (:class:`LoopPacer`, used by
         :func:`~tachypy.scrollbar_interaction.run_slider_interaction`) can't
         run unthrottled -- ``0``/negative falls back to the same rate as an
@@ -401,6 +411,17 @@ class Screen:
 
         glfw.default_window_hints()
         glfw.window_hint(glfw.DOUBLEBUFFER, glfw.TRUE)
+        requested_rate = self.desired_refresh_rate
+        if requested_rate is not None and requested_rate > 0:
+            glfw.window_hint(glfw.REFRESH_RATE, requested_rate)
+            if not self.fullscreen:
+                warn_once(
+                    "Screen initialization",
+                    "GLFW ignores desired_refresh_rate in windowed mode; the OS/compositor "
+                    "controls the display refresh rate. Use fullscreen=True to request a "
+                    "display mode, or change your OS display settings. "
+                    "With vsync=False, this value still controls software pacing.",
+                )
 
         fullscreen_monitor = monitor if self.fullscreen else None
         window = glfw.create_window(self.width, self.height, "TachyPy", fullscreen_monitor, None)
@@ -410,6 +431,26 @@ class Screen:
 
         self._glfw_window = window
         self.screen = window
+        # Fullscreen creation may switch resolution and refresh rate.
+        active_mode = glfw.get_video_mode(monitor)
+        if active_mode is not None:
+            self._mode_refresh_rate = Screen._video_mode_rate(active_mode)
+            self._max_mode_refresh_rate = Screen._max_refresh_rate(
+                glfw, monitor, active_mode.size.width, active_mode.size.height
+            )
+        else:
+            self._mode_refresh_rate = None
+            self._max_mode_refresh_rate = None
+        if self.fullscreen and requested_rate is not None and requested_rate > 0:
+            actual_rate = self._mode_refresh_rate
+            if actual_rate != requested_rate:
+                reported = f"{actual_rate:g} Hz" if actual_rate else "an unknown refresh rate"
+                warn_once(
+                    "Screen initialization",
+                    f"Requested {requested_rate:g} Hz, but GLFW reports {reported} after "
+                    "fullscreen creation. GLFW selects the closest supported display mode; "
+                    "the requested rate is not guaranteed.",
+                )
         glfw.make_context_current(window)
         glfw.swap_interval(1 if self.vsync else 0)
 
