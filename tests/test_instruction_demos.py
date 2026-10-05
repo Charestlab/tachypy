@@ -1,11 +1,12 @@
 """Layout, timeline and packaging checks for the instruction demos (no OpenGL context needed)."""
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from tachypy.instruction_demos import keypad
+from tachypy.instruction_demos import hold_trial, keypad
 from tachypy.instruction_demos import (
     GifUwuFixationCross,
     GifUwuHoldTrial,
@@ -18,6 +19,8 @@ class Dummy:
     """Stand-in for GL-backed drawables (Texture, Scrollbar, Text...): accepts anything."""
 
     def __init__(self, *args, **kwargs):
+        self.rect = (0.0, 0.0, 1.0, 1.0)
+        self.text = ""
         self.mobile_line = SimpleNamespace(set_color=lambda color: None)
 
     def __getattr__(self, name):
@@ -28,6 +31,9 @@ class Dummy:
 def no_gl(monkeypatch):
     for name in ("Texture", "Scrollbar", "Text", "Rectangle", "Line"):
         monkeypatch.setattr(keypad, name, Dummy)
+    for name in ("glTexEnvf", "glColor4f", "glColor3f", "glBegin", "glEnd", "glTexCoord2f", "glVertex2f", "glLineWidth"):
+        monkeypatch.setattr(keypad, name, lambda *args, **kwargs: None)
+    monkeypatch.setattr(hold_trial, "Rectangle", Dummy)
     monkeypatch.setattr(keypad, "_load_keyboard_rgb", lambda path, background: np.zeros((2, 2, 3), np.uint8))
 
 
@@ -122,3 +128,78 @@ def test_hold_trial_validates_phases_and_modes():
     assert phase.name == "p1" and progress == pytest.approx(0.5)
     with pytest.raises(ValueError):
         demo._default_pressures(HoldDemoPhase("x", 1.0, "s", pressure_mode="nope"), 0.5)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = SimpleNamespace(now=100.0, perf_counter=lambda: fake.now)
+    monkeypatch.setattr(keypad, "time", fake)
+    monkeypatch.setattr(hold_trial, "time", fake)
+    return fake
+
+
+def sweep(demo, clock, steps=80):
+    demo.draw()  # drawing before start() starts the clock
+    for i in range(steps):
+        clock.now = 100.0 + demo.duration * i / steps
+        demo.draw()
+
+
+def test_scrollbar_draws_over_the_whole_loop(clock):
+    sweep(GifUwuScrollbar(make_screen(), loop=True), clock)
+    sweep(GifUwuScrollbar(make_screen(), top_y=120.0), clock)
+
+
+def test_fixation_cross_draws_every_keyboard_view_and_cross_state(clock):
+    sweep(GifUwuFixationCross(make_screen(), loop=True, show_pressure_text=True), clock, steps=200)
+
+
+def test_hold_trial_draws_every_pressure_mode(clock):
+    modes = ("released", "ramp_to_green", "green", "lose_left", "left_weak", "remove_left",
+             "left_released", "recover_left", "respond_left", "respond_right", "release")
+    frames = []
+    demo = GifUwuHoldTrial(
+        make_screen(),
+        trial_drawer=frames.append,
+        phases=[HoldDemoPhase(m, 1.0, "scene", m, show_cross=True) for m in modes],
+        loop=True,
+    )
+    sweep(demo, clock, steps=110)
+    assert {f.phase_name for f in frames} == set(modes)
+    assert all(0.0 <= f.progress <= 1.0 for f in frames)
+
+
+def test_hold_trial_uses_a_custom_pressure_provider(clock):
+    seen = []
+    demo = GifUwuHoldTrial(
+        make_screen(), trial_drawer=lambda frame: seen.append((frame.left_pressure, frame.right_pressure)),
+        phases=phases(1.0), pressure_provider=lambda phase, progress: (0.3, 0.6),
+    )
+    demo.draw()
+    assert seen == [(0.3, 0.6)]
+
+
+def test_hold_trial_stops_at_the_end_unless_looping(clock):
+    demo = GifUwuHoldTrial(make_screen(), trial_drawer=lambda frame: None, phases=phases(1.0, 1.0), playback_speed=2.0)
+    demo.start()
+    assert demo.duration == 1.0
+    clock.now += 5.0
+    assert demo._elapsed() == demo.timeline_duration and demo.is_finished
+    with pytest.raises(ValueError):
+        GifUwuHoldTrial(make_screen(), trial_drawer=lambda frame: None, phases=phases(1.0), playback_speed=0)
+
+
+def test_fixation_is_finished_only_when_not_looping(clock):
+    once, looping = GifUwuFixationCross(make_screen()), GifUwuFixationCross(make_screen(), loop=True)
+    assert not once.is_finished
+    for demo in (once, looping):
+        demo.start()
+    clock.now += once.duration + 0.1
+    assert once.is_finished and not looping.is_finished
+
+
+def test_missing_pillow_gives_an_actionable_error(monkeypatch):
+    monkeypatch.undo()
+    monkeypatch.setitem(sys.modules, "PIL", None)
+    with pytest.raises(ImportError, match="tachypy\\[wooting\\]"):
+        keypad._load_keyboard_rgb(keypad._KEYBOARD_PNG, (0, 0, 0))
