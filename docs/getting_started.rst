@@ -1,6 +1,8 @@
 Getting Started
 ===============
 
+|ci| |pypi| |pyversions| |docs| |license|
+
 Install TachyPy
 ---------------
 

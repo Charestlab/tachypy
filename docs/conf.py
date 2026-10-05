@@ -36,3 +36,22 @@ html_theme_options = {
     "source_branch": "main",
     "source_directory": "docs/",
 }
+
+# Badge substitutions shared by every page
+rst_epilog = """
+.. |ci| image:: https://github.com/Charestlab/tachypy/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/Charestlab/tachypy/actions/workflows/ci.yml
+   :alt: CI
+.. |pypi| image:: https://img.shields.io/pypi/v/tachypy.svg
+   :target: https://pypi.org/project/tachypy/
+   :alt: PyPI version
+.. |pyversions| image:: https://img.shields.io/pypi/pyversions/tachypy.svg
+   :target: https://pypi.org/project/tachypy/
+   :alt: Python versions
+.. |docs| image:: https://readthedocs.org/projects/tachypy/badge/?version=latest
+   :target: https://tachypy.readthedocs.io/en/latest/?badge=latest
+   :alt: Docs status
+.. |license| image:: https://img.shields.io/github/license/Charestlab/tachypy.svg
+   :target: https://github.com/Charestlab/tachypy/blob/main/LICENSE
+   :alt: License
+"""
