@@ -335,92 +335,194 @@ The complete API, including the keyboard-agnostic
 Animated demos for the instructions
 -----------------------------------
 
-Participants grasp pressure-sensitive keys much faster when they *see* them
-before using them. :mod:`tachypy.instruction_demos` provides short, scripted
-animations of the Wooting UwU keypad that you can play **while presenting the
-instructions** (typically right before the matching practice trials) to explain
-the principle. They are drawn by TachyPy alone: no keyboard and no TachyWooting
-are needed to play them, so they run on any screen. They need Pillow to load the
-keypad images, which ``pip install "tachypy[wooting]"`` already provides.
+Participants grasp pressure-sensitive keys faster when they *see* them, and faster
+still when they can try them. :mod:`tachypy.instruction_demos` provides three demos of the
+Wooting UwU keypad to show **while presenting the instructions**, typically right before
+the matching practice trials. Each one is a scripted video, a live demo driven by the
+participant's real pressures, or the video until the participant takes over.
+
+- :class:`~tachypy.instruction_demos.GifUwuFixationCross`: keycaps and fixation cross
+  reacting to the pressure (hold the cross).
+- :class:`~tachypy.instruction_demos.GifUwuScrollbar`: keycaps moving a slider cursor (the
+  vividness rating).
+- :class:`~tachypy.instruction_demos.GifUwuHoldTrial`: a whole trial on a simulated monitor
+  (hold, imagine, answer).
+
+They need Pillow to load the keypad images (``pip install "tachypy[wooting]"`` provides it).
+The scripted video needs no keyboard and no TachyWooting, so it runs on any screen.
+
+Quick start
+~~~~~~~~~~~
+
+.. code-block:: python
+
+   from tachypy import ResponseHandler, Screen
+   from tachypy.instruction_demos import GifUwuFixationCross
+   from tachypy.wooting import WOOTING_ACQUISITION
+
+   screen = Screen(fullscreen=False)
+   rh = ResponseHandler(screen=screen)
+   acq = WOOTING_ACQUISITION(min_pressure_start=0.1, max_pressure_start=0.4)  # your correct-pressure band
+   acq.initialize_keyboard()
+
+   # Video until the participant presses Z or C, then their real pressures; [X] continues.
+   demo = GifUwuFixationCross(screen, mode="video_then_interactive", source=acq, loop=True)
+   demo.play(rh, exit_keys=("x",), drawables=[my_instruction_text], caption=my_press_x_hint)
+
+Drop ``mode`` and ``source`` for a plain video (no keyboard). ``GifUwuScrollbar`` works the
+same way. ``play`` draws your ``drawables`` (the explanation text), then the demo, until an
+exit key is pressed; ``caption`` appears once the participant has watched one pass or taken
+control. It returns the exit key, ``"completed"`` (see `Counting successes`_), or ``None``
+if the window was closed.
+
+Modes and pressure sources
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``mode`` is one of:
+
+``"video"`` (default)
+   The scripted animation only.
+``"interactive"``
+   Only the participant's real ``Z`` / ``C`` pressures, through the same interface.
+``"video_then_interactive"``
+   The animation plays and loops until the participant presses ``Z`` or ``C``; the real
+   pressures then take over from what is on screen.
+
+The pressures come from ``source`` (any object with ``read_pressures(keys)``, e.g. an
+initialized ``WOOTING_ACQUISITION``) or ``pressure_reader`` (a callable returning
+``(left, right)`` in 0-1). With a ``source``, "too light / ideal / too hard" is judged exactly
+like ``wait_light_press_visual``, reading its ``min_pressure_start``, ``max_pressure_start``,
+``threshold`` and ``hold_seconds`` and rescaling the video onto that band; pass any of them to
+a demo to override the source. ``is_live`` reports whether the participant has taken over;
+``start()`` rewinds, replaying the video. A key already held when a ``video_then_interactive``
+demo starts doesn't take it over until released.
 
 Fixation-cross hold
 ~~~~~~~~~~~~~~~~~~~
 
-:class:`~tachypy.instruction_demos.GifUwuFixationCross` shows the keypad from
-above, then from the side, while the ``Z`` and ``C`` keycaps travel with scripted
-pressures. A keycap is white when released, pale red when too light, green in the
-ideal band and dark red when too hard. The same pressures drive a
-:class:`~tachypy.feedback.PressureFeedbackState`, so the fixation cross below
-behaves exactly as ``wait_light_press_visual`` does in a live trial: its arms grow
-with pressure, it turns black once the hold is right, and it prints the pressure
-of any key outside the band.
+:class:`~tachypy.instruction_demos.GifUwuFixationCross` shows the keypad from above, then
+from the side, while the ``Z`` and ``C`` keycaps travel. A keycap is white when released,
+pale red when too light, green in the ideal band and dark red when too hard. The same
+pressures drive a :class:`~tachypy.feedback.PressureFeedbackState`, so the cross behaves as
+in a live trial: its arms grow with pressure, it turns black once the hold is right, and it
+prints the pressure of any key outside the band. Interactive, it starts directly on the side view.
 
 .. image:: gifs/wooting-uwu-fixation-cross.gif
    :alt: Animated UwU keypad whose keycaps move and change color while the fixation cross grows and turns black
    :width: 70%
    :align: center
 
+Counting successes
+^^^^^^^^^^^^^^^^^^
+
+A *completion* is one real hold of both keys in the band for ``hold_seconds`` (0.3 s by
+default when interactive; the cross turns black). It is counted once per hold, and the keys
+must leave the band before the next one counts (tell participants to lift their fingers
+after each hit). The video never counts. Each completion is shown: a counter below the keypad
+shows ``completions`` (or ``completions / max_completions``, prefixed by ``completion_label``
+if given) and a green check mark appears beside it for a moment; ``completion_feedback=False``
+turns this off.
+
+.. code-block:: python
+
+   demo = GifUwuFixationCross(screen, mode="video_then_interactive", source=acq,
+                              hold_seconds=0.5, max_completions=2)   # twice, then move on
+   demo.play(rh)          # "completed" (or "x" if the participant skips ahead)
+   demo.completions       # the running count
+
+``max_completions=N`` (at least 1) completes the demo after ``N`` holds (``is_complete``;
+``play`` lingers ``pause_after_completion`` seconds so the last one is seen).
+``max_completions=0`` (default) never ends: participants practise until they press the exit key.
+
 Slider
 ~~~~~~
 
 :class:`~tachypy.instruction_demos.GifUwuScrollbar` shows the keypad under a
-:class:`~tachypy.scrollbar.Scrollbar`. The highlighted key and the red cursor
-follow the same hold-to-speed movement as ``interact_slider`` (see
-:mod:`tachypy.scrollbar_interaction`): holding ``C`` moves the cursor right and
-accelerates, holding ``Z`` moves it left, and the animation closes on its starting
-value so it loops seamlessly. Mention in your text that ``X`` confirms the
-choice.
+:class:`~tachypy.scrollbar.Scrollbar`. The highlighted key and the red cursor follow the
+same hold-to-speed movement as ``interact_slider`` (see :mod:`tachypy.scrollbar_interaction`):
+holding ``C`` moves the cursor right and accelerates, holding ``Z`` moves it left. The video
+closes on its starting value so it loops seamlessly; interactive, the cursor continues from
+where the video was. Mention in your text that ``X`` confirms the real choice.
 
 .. image:: gifs/wooting-uwu-scrollbar.gif
    :alt: Animated UwU keypad whose highlighted Z and C keys move a slider cursor left and right
    :width: 70%
    :align: center
 
-Playing a demo in your instructions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Full trial
+~~~~~~~~~~
 
-Both demos expose ``start()``, ``draw(screen)``, ``is_finished`` and a ``loop``
-flag. Draw your explanation text, then the demo, on every frame until the
-participant continues:
+:class:`~tachypy.instruction_demos.GifUwuHoldTrial` runs a trial on a simulated monitor
+above the side-view keypad. **Your** experiment draws its own content (cue, stimulus,
+answer) with a ``trial_drawer`` that receives a
+:class:`~tachypy.instruction_demos.TrialDemoFrame` each frame; ``content_top`` /
+``content_bottom`` keep the whole scene between your own top and bottom texts.
+
+*Video*: ``phases``, a list of :class:`~tachypy.instruction_demos.HoldDemoPhase` (name,
+duration, scene and the scripted pressure behavior), for example one trial where the
+pressure is released and one where it is held.
+
+*Interactive*: an :class:`~tachypy.instruction_demos.InteractiveTrial` is the same list
+run on real pressures, plus a ``fail`` phase. A phase can wait (``wait_for="ready"``: the
+cross completes; ``"response"``: a key reaches the response threshold, shown as
+``frame.response_side``) and can ``guard`` the pressure: if a finger lifts, the trial
+shows ``fail`` and restarts.
 
 .. code-block:: python
 
-   from tachypy import ResponseHandler, Screen
-   from tachypy.instruction_demos import GifUwuFixationCross, GifUwuScrollbar
+   from tachypy.instruction_demos import GifUwuHoldTrial, HoldDemoPhase, InteractiveTrial
 
-   gray = (128, 128, 128)
-   screen = Screen(fullscreen=False)
-   rh = ResponseHandler(screen=screen)
+   trial = InteractiveTrial(
+       phases=(
+           HoldDemoPhase("acquire", 0.3, "acquire", show_cross=True, wait_for="ready"),
+           HoldDemoPhase("cue", 1.0, "cue", guard=True),
+           HoldDemoPhase("imagery", 1.7, "imagery", guard=True, show_cross=True),
+           HoldDemoPhase("question", 0.5, "question", guard=True, wait_for="response"),
+           HoldDemoPhase("result", 1.2, "correct"),      # fingers may lift after the answer
+       ),
+       fail=HoldDemoPhase("fail", 2.0, "incorrect"),
+   )
+   demo = GifUwuHoldTrial(screen, trial_drawer=draw_my_trial, phases=my_video_phases,
+                          mode="video_then_interactive", interactive=trial, source=acq,
+                          max_completions=2, on_event=print)
+   demo.play(rh)
 
-   for demo_cls in (GifUwuFixationCross, GifUwuScrollbar):
-       demo = demo_cls(screen, background_color=gray, loop=True)
-       demo.start()
-       while not rh.was_key_pressed("x"):      # play until the participant continues
-           rh.get_events()
-           screen.fill(gray)
-           # ... draw your explanation text here ...
-           demo.draw(screen)
-           screen.flip()
+``max_completions=N`` completes the demo after ``N`` correct trials (as for the cross), with a
+counter (``completion_label`` before it) in the monitor's corner; ``completion_feedback=False``
+hides it. ``completions``, ``failures`` and ``events`` record what happened: each event dict has
+``time``, ``attempt``, ``phase`` and either ``"fingers_lifted"`` (with the lifted ``keys``),
+``"response"`` (with ``side``), or ``"completed"``. ``on_event`` is called with each one as it
+happens, e.g. to log it. A finger counts as lifted below ``finger_present_threshold`` (the
+source's, else ``0.01``).
 
-Set ``background_color`` to your screen fill: :class:`~tachypy.Texture` is
-RGB-only, so the transparent keypad images are composited onto that color when
-they load. Both demos are centered and place the keypad at the same size and
-position (``keyboard_width`` is 300 px by default), so playing one after the
-other feels like a single scene. To see them on their own, run:
+Running a demo yourself
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Without ``play``, call ``start()`` and then ``draw(screen)`` on every frame; ``is_finished``
+(scripted pass over, or completed) and ``caption_ready`` help you decide when to move on:
+
+.. code-block:: python
+
+   demo = GifUwuScrollbar(screen, background_color=gray, loop=True)
+   demo.start()
+   while not rh.was_key_pressed("x"):
+       rh.get_events()
+       screen.fill(gray)
+       demo.draw(screen)
+       screen.flip()
+
+Set ``background_color`` to your screen fill: :class:`~tachypy.Texture` is RGB-only, so the
+transparent keypad images are composited onto that color when they load. All demos place
+the keypad at the same size and position (``keyboard_width`` is 300 px), so playing one
+after the other feels like a single scene. To see them on their own, run:
 
 .. code-block:: bash
 
    python -m tachypy.instruction_demos        # or: tachypy-instruction-demos
+   python -m tachypy.instruction_demos fixation --mode video_then_interactive \
+       --min-pressure 0.1 --max-pressure 0.4 --completions 2     # needs a Wooting
 
-For a longer lesson, :class:`~tachypy.instruction_demos.GifUwuHoldTrial` runs a
-timeline of :class:`~tachypy.instruction_demos.HoldDemoPhase` steps in which
-**your** experiment draws its own trial (cue, stimulus, response) on a simulated
-monitor above the side-view keypad, for example to contrast a trial where the
-pressure is released with one where it is held until the response. Your
-``trial_drawer`` receives a :class:`~tachypy.instruction_demos.TrialDemoFrame`
-each frame, and ``content_top`` / ``content_bottom`` keep the whole scene between
-your own top and bottom texts. The gifs above are regenerated with
-``python docs/make_instruction_demo_gifs.py``.
+The gifs above are regenerated with ``python docs/make_instruction_demo_gifs.py``.
 
 Logging and a full experiment loop
 ----------------------------------

@@ -1,30 +1,29 @@
-"""Animated UwU-keypad demos for instruction screens: fixation-cross hold and analog slider.
+"""Animated UwU-keypad demos for instruction screens: fixation-cross hold, slider, full trial.
 
-Scripted, keyboard-free animations of the Wooting UwU keypad. No keyboard or
-TachyWooting is needed to play them, so they can be shown while presenting the
-instructions (to explain how the pressure-sensitive keys work) before a
-participant ever touches the hardware.
+The demos are scripted by default (no keyboard or TachyWooting needed), so they can be
+shown while presenting the instructions, before a participant touches the hardware. The
+fixation-cross and slider demos can also follow the participant's real pressures:
+``mode`` is ``"video"``, ``"interactive"`` or ``"video_then_interactive"`` (see
+:class:`LiveDemoMixin`).
 
-- :class:`GifUwuScrollbar` -- a fixed keyboard image under a live
-  :class:`~tachypy.scrollbar.Scrollbar` whose red cursor (and a red key square)
-  follow the *same* duration-based math as the real analog interaction
-  (:mod:`tachypy.scrollbar_interaction`), scripted so the loop closes seamlessly.
-- :class:`GifUwuFixationCross` -- a top-view keyboard that fades into a side view
-  whose two keycaps travel and recolor with scripted pressures. The same
-  pressures drive a :class:`~tachypy.feedback.PressureFeedbackState`, so the
-  fixation cross below grows, recolors, and prints pressure exactly as in a live
-  trial.
+- :class:`GifUwuScrollbar` -- keyboard image under a :class:`~tachypy.scrollbar.Scrollbar`
+  whose red cursor and key square use the real hold-to-speed math
+  (:mod:`tachypy.scrollbar_interaction`).
+- :class:`GifUwuFixationCross` -- top-view keyboard fading into a side view whose keycaps
+  travel and recolor with the pressures; they also drive a
+  :class:`~tachypy.feedback.PressureFeedbackState`, so the cross behaves as in a live trial.
+- :class:`GifUwuHoldTrial` -- a fixation-cross lesson around your own trial drawer.
 
-Both expose ``start()``, ``draw(screen)``, ``is_finished`` and a ``loop`` flag.
-:class:`~tachypy.Texture` is RGB-only, so the transparent keyboard PNGs are
-composited onto ``background_color`` at load time; set it to the screen fill so
-the keyboard blends in.
+:class:`~tachypy.Texture` is RGB-only, so the transparent keyboard PNGs are composited
+onto ``background_color`` at load time; set it to the screen fill.
 """
 from __future__ import annotations
 
 import math
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Sequence
 
 import numpy as np
 from OpenGL.GL import (
@@ -46,7 +45,7 @@ from OpenGL.GL import (
 
 from tachypy.feedback import PressureFeedbackConfig, PressureFeedbackState
 from tachypy.scrollbar import Scrollbar
-from tachypy.scrollbar_interaction import _accelerated_step, _edge_scale
+from tachypy.scrollbar_interaction import SliderControls, _accelerated_step, _edge_scale, _movement_direction
 from tachypy.shapes import Line, Rectangle
 from tachypy.text import Text
 from tachypy.textures import Texture
@@ -91,7 +90,159 @@ def _lerp_color(start, end, progress: float):
     return tuple(int(round(s + (e - s) * progress)) for s, e in zip(start, end))
 
 
-class GifUwuScrollbar:
+MODES = ("video", "interactive", "video_then_interactive")
+#: Pressure above which a key press hands a ``video_then_interactive`` demo to the participant.
+DEFAULT_TAKEOVER_PRESSURE = 15 / 255
+
+
+class LiveDemoMixin:
+    """Mode handling, live pressure polling and the blocking :meth:`play` loop.
+
+    Subclasses call :meth:`_init_live` in ``__init__``, route ``draw`` through
+    :meth:`_poll_live`, and implement :meth:`_on_takeover` (what "live" starts from).
+    """
+
+    def _init_live(self, mode, source, pressure_reader, left_key, right_key, takeover_pressure):
+        if mode not in MODES:
+            raise ValueError(f"mode must be one of {', '.join(MODES)}; got {mode!r}")
+        if mode != "video" and source is None and pressure_reader is None:
+            raise ValueError(f"mode={mode!r} needs a pressure source: pass source= or pressure_reader=")
+        if source is not None and pressure_reader is not None:
+            raise ValueError("pass either source= or pressure_reader=, not both")
+        self.mode = mode
+        self.source = source
+        self.left_key = str(left_key).lower()
+        self.right_key = str(right_key).lower()
+        if self.left_key == self.right_key:
+            raise ValueError("left_key and right_key must differ")
+        self.takeover_pressure = float(takeover_pressure)
+        self._pressure_reader = pressure_reader
+        self._live = False
+        self._ever_live = False
+        self._armed = True  # False while keys are still held from before the demo started
+
+    @property
+    def is_live(self) -> bool:
+        """True while the participant's real pressures drive the demo."""
+        return self._live
+
+    @property
+    def is_complete(self) -> bool:
+        """True once the demo's own goal is met (e.g. the cross completed ``max_completions`` times)."""
+        return False
+
+    @property
+    def caption_ready(self) -> bool:
+        """True once the participant has seen one full video pass, or has taken control."""
+        if self.mode == "interactive" or self._ever_live:
+            return True
+        return self._t0 is not None and time.perf_counter() - self._t0 >= self.duration
+
+    def start(self):
+        """(Re)start the demo from the beginning (an interactive demo is live at once)."""
+        self._t0 = time.perf_counter()
+        self._live = self._ever_live = False
+        self._armed = self.mode != "video_then_interactive"  # keys already down must be released first
+        if self.mode != "video":
+            validate = getattr(self.source, "validate_analog_keys", None)
+            if callable(validate):
+                validate((self.left_key, self.right_key))
+        if self.mode == "interactive":
+            self._begin_live(self._t0, from_start=True)
+
+    def _read_live(self) -> tuple[float, float]:
+        if self._pressure_reader is not None:
+            left, right = self._pressure_reader()
+        else:
+            pressures = self.source.read_pressures((self.left_key, self.right_key))
+            left, right = pressures[self.left_key], pressures[self.right_key]
+        return float(left), float(right)
+
+    def _begin_live(self, now: float, *, from_start: bool = False) -> None:
+        self._live = self._ever_live = True
+        self._on_takeover(now, from_start)
+
+    def _poll_live(self, now: float):
+        """Return the live ``(left, right)`` pressures, or None while the video plays."""
+        if self.mode == "video":
+            return None
+        pair = self._read_live()
+        if not self._live:
+            if not self._armed:
+                self._armed = max(pair) <= self.takeover_pressure
+                return None
+            if max(pair) <= self.takeover_pressure:
+                return None
+            self._begin_live(now)
+        return pair
+
+    def _on_takeover(self, now: float, from_start: bool) -> None:
+        raise NotImplementedError
+
+    def play(
+        self,
+        response_handler,
+        *,
+        exit_keys: Sequence[str] = ("x",),
+        drawables: Sequence[object] = (),
+        caption=None,
+        background_color=None,
+        pause_after_completion: float = 0.6,
+    ) -> str | None:
+        """Run the demo until an exit key is pressed or it completes (blocking, one frame per flip).
+
+        Parameters
+        ----------
+        response_handler : ResponseHandler-like
+            Polled each frame for exit keys and window-close / Escape.
+        exit_keys : sequence of str
+            Keys that end the demo (default ``("x",)``).
+        drawables : sequence
+            Objects with ``draw()`` drawn under the demo every frame (e.g. the
+            instruction text).
+        caption : object, optional
+            Drawn only once :attr:`caption_ready` (e.g. a "press [X] to continue" hint).
+        background_color : sequence of int, optional
+            Screen fill; defaults to the demo's ``background_color``.
+        pause_after_completion : float
+            Seconds the finished demo stays on screen once :attr:`is_complete`.
+
+        Returns
+        -------
+        str or None
+            The exit key that was pressed, ``"completed"`` when the demo completed, or
+            None if the window was closed / Escape.
+        """
+        keys = [str(key).lower() for key in exit_keys]
+        listened = getattr(response_handler, "keys_to_listen", None)
+        if listened is not None:
+            response_handler.keys_to_listen = sorted({str(k).lower() for k in listened} | set(keys))
+            if hasattr(response_handler, "_probed_keys"):
+                response_handler._probed_keys.update(keys)
+        fill = self.background_color if background_color is None else background_color
+        self.start()
+        completed_at = None
+        while True:
+            response_handler.get_events()
+            if response_handler.should_quit():
+                return None
+            for key in keys:
+                if response_handler.was_key_pressed(key):
+                    return key
+            if self.is_complete:
+                completed_at = time.perf_counter() if completed_at is None else completed_at
+                if time.perf_counter() - completed_at >= pause_after_completion:
+                    return "completed"
+            self.screen.fill(fill)
+            for drawable in drawables:
+                drawable.draw()
+            self.draw(self.screen)
+            if caption is not None and self.caption_ready:
+                caption.draw()
+            self.screen.flip()
+
+
+class GifUwuScrollbar(LiveDemoMixin):
     """Scripted UwU-keyboard → scrollbar animation, drawable in a TachyPy loop.
 
     The keyboard is a fixed image; only the red key square and the scrollbar
@@ -128,6 +279,23 @@ class GifUwuScrollbar:
         Trajectory sampling rate.
     loop : bool
         Replay forever instead of stopping after one pass.
+    mode : {"video", "interactive", "video_then_interactive"}
+        Who drives the cursor: the scripted animation, the participant's real Z / C
+        pressures (same hold-to-speed math), or the animation until the first press.
+    source, pressure_reader :
+        Live pressures for the interactive modes: an object with
+        ``read_pressures(keys)`` (e.g. a ``WOOTING_ACQUISITION``), or a callable
+        returning ``(left, right)`` in 0-1. Pass at most one.
+    left_key, right_key : str
+        Keys read from ``source``; left moves the cursor left, right moves it right.
+    takeover_pressure, pressure_deadzone : float
+        Pressure that hands a ``video_then_interactive`` demo to the participant, and
+        the deadzone below which a live key does not move the cursor.
+
+    Example
+    -------
+    >>> demo = GifUwuScrollbar(screen, mode="video_then_interactive", source=wooting, loop=True)
+    >>> demo.play(response_handler, exit_keys=("x",))  # video until Z / C is pressed, then live
     """
 
     #: Keyboard width (px) when ``keyboard_width`` is None.
@@ -164,7 +332,15 @@ class GifUwuScrollbar:
         scrollbar_width: float | None = None,
         sim_hz: float = 250.0,
         loop: bool = False,
+        mode: str = "video",
+        source=None,
+        pressure_reader=None,
+        left_key: str = "z",
+        right_key: str = "c",
+        takeover_pressure: float = DEFAULT_TAKEOVER_PRESSURE,
+        pressure_deadzone: float = 15 / 255,
     ):
+        self._init_live(mode, source, pressure_reader, left_key, right_key, takeover_pressure)
         self.screen = screen
         self.background_color = tuple(int(c) for c in background_color)
         self.loop = bool(loop)
@@ -221,6 +397,13 @@ class GifUwuScrollbar:
         )
         self.duration = float(self._times[-1]) if len(self._times) else 0.0
         self._t0: float | None = None
+        self._initial_value = float(initial_value)
+        self._motion = (acceleration, movement_speed, curve_x, curve_y, edge_margin, edge_reduction)
+        self._pressure_deadzone = float(pressure_deadzone)
+        self._live_value = self._initial_value
+        self._live_hold = 0.0
+        self._live_direction = 0
+        self._live_last = 0.0
 
     def _build_trajectory(self, *, movement_speed, acceleration, curve_x, curve_y,
                           edge_margin, edge_reduction, initial_value,
@@ -273,15 +456,34 @@ class GifUwuScrollbar:
         rest(rest_end)
         return np.asarray(times), np.asarray(values), keys
 
-    def start(self):
-        """(Re)start the animation clock from now."""
-        self._t0 = time.perf_counter()
-
     @property
     def is_finished(self) -> bool:
-        if self.loop or self._t0 is None or self.duration <= 0:
+        if self.loop or self._live or self._t0 is None or self.duration <= 0:
             return False
         return (time.perf_counter() - self._t0) >= self.duration
+
+    def _on_takeover(self, now: float, from_start: bool) -> None:
+        """Continue from the scripted cursor position (or ``initial_value`` when interactive-only)."""
+        self._live_value = self._initial_value if from_start else self._sample()[0]
+        self._live_hold, self._live_direction, self._live_last = 0.0, 0, now
+
+    def _step_live(self, now: float, left: float, right: float):
+        """Advance the cursor with the real hold-to-speed math; return (value, key)."""
+        acceleration, speed, curve_x, curve_y, edge_margin, edge_reduction = self._motion
+        dt = min(max(0.0, now - self._live_last), 0.1)
+        self._live_last = now
+        direction = _movement_direction(SliderControls(decrease=left, increase=right), self._pressure_deadzone)
+        if direction == 0:
+            self._live_hold = 0.0
+        else:
+            if direction != self._live_direction:
+                self._live_hold = 0.0
+            distance, self._live_hold = _accelerated_step(
+                self._live_hold, dt, acceleration, speed, curve_x, curve_y)
+            distance *= _edge_scale(self._live_value, direction, edge_margin, edge_reduction)
+            self._live_value = float(np.clip(self._live_value + direction * distance, 0.0, 100.0))
+        self._live_direction = direction
+        return self._live_value, {-1: "z", 0: "", 1: "c"}[direction]
 
     def _sample(self):
         """Return (value, key) for the current elapsed time."""
@@ -297,7 +499,9 @@ class GifUwuScrollbar:
         """Draw the keyboard, the animated scrollbar, and the red key square."""
         if self._t0 is None:
             self.start()
-        value, key = self._sample()
+        now = time.perf_counter()
+        live = self._poll_live(now)
+        value, key = self._sample() if live is None else self._step_live(now, *live)
 
         self._texture.draw(self._kb_rect)
 
@@ -326,9 +530,12 @@ _SIDE_VISIBLE_TOP = 102.0
 _SIDE_CASE_TOP = 190.0
 _SIDE_KEY_TRAVEL = 36.0
 _PRESSURE_SEQUENCE_SECONDS = 3.30
+# Band the scripted pressures are written for; they are rescaled onto any other band.
+_FLASH_SECONDS = 0.6  # how long the check mark shows after a completion
+_BAND_DEFAULTS = {"min_pressure_start": 0.33, "max_pressure_start": 0.66, "threshold": 0.8, "hold_seconds": 0.5}
 
 
-class GifUwuFixationCross:
+class GifUwuFixationCross(LiveDemoMixin):
     """Scripted UwU-keyboard → fixation-cross pressure animation.
 
     A top-view keyboard image fades into a side view whose two keycaps travel
@@ -353,8 +560,11 @@ class GifUwuFixationCross:
         Pressures at or below this read as a released (white) key.
     key_color_min, key_color_max, key_color_ideal : sequence of int
         Keycap RGB for too-weak, too-strong, and in-band pressure.
-    min_pressure_start, max_pressure_start, threshold, hold_seconds : float
-        ``PressureFeedbackConfig`` band edges, target threshold, and hold time.
+    min_pressure_start, max_pressure_start, threshold, hold_seconds : float, optional
+        ``PressureFeedbackConfig`` band edges, target threshold, and hold time. ``None``
+        takes them from ``source`` (judging pressure exactly like the real task), else
+        0.33 / 0.66 / 0.8 and 0.5 s (0.3 s interactive). The scripted pressures are
+        rescaled onto the band, so "too weak / ideal / too strong" always shows correctly.
     cross_half_size, cross_thickness : float
         Fixation-cross arm half-length and line thickness.
     show_pressure_text, left_pressure_label, right_pressure_label :
@@ -367,6 +577,35 @@ class GifUwuFixationCross:
         Durations of the intro hold, top↔side cross-fade, pre-press settle, and outro.
     loop : bool
         Replay forever instead of stopping after one pass.
+    mode : {"video", "interactive", "video_then_interactive"}
+        Who drives the keycaps and the cross: the scripted animation, the participant's
+        real pressures (side view straight away), or the animation until the first
+        Z / C press, after which the real pressures take over.
+    source, pressure_reader :
+        Live pressures for the interactive modes: an object with
+        ``read_pressures(keys)`` (e.g. a ``WOOTING_ACQUISITION``), or a callable
+        returning ``(left, right)`` in 0-1. Pass at most one.
+    left_key, right_key : str
+        Keys read from ``source`` (left drives the left arm of the cross).
+    takeover_pressure : float
+        Pressure above which a key press hands a ``video_then_interactive`` demo over.
+    max_completions : int
+        Live completions (both keys held in band for ``hold_seconds``, the cross turning
+        black) after which the demo is complete: ``is_complete`` / ``is_finished`` become
+        True and ``play`` returns ``"completed"``. ``0`` (default) never ends, for free
+        practice. ``completions`` holds the running count.
+    completion_feedback : bool
+        Feedback on real completions: a counter (``completions``, or
+        ``completions / max_completions``) below the keypad, and a green check mark beside it
+        for 0.6 s after each one.
+    completion_label : str
+        Optional word before the counter (``"Hits"`` gives ``Hits: 2 / 3``).
+
+    Example
+    -------
+    >>> demo = GifUwuFixationCross(screen, mode="video_then_interactive", source=wooting,
+    ...                            loop=True, max_completions=2)
+    >>> demo.play(response_handler, exit_keys=("x",))  # "completed" after two successful holds
     """
 
     #: Top-view keyboard width (px) when ``keyboard_width`` is None.
@@ -389,10 +628,10 @@ class GifUwuFixationCross:
         key_color_min=(255, 150, 150),
         key_color_max=(255, 45, 45),
         key_color_ideal=(72, 190, 110),
-        min_pressure_start: float = 0.33,
-        max_pressure_start: float = 0.66,
-        threshold: float = 0.8,
-        hold_seconds: float = 0.50,
+        min_pressure_start: float | None = None,
+        max_pressure_start: float | None = None,
+        threshold: float | None = None,
+        hold_seconds: float | None = None,
         cross_half_size: float = 36.0,
         cross_thickness: float = 10.0,
         show_pressure_text: bool = True,
@@ -411,7 +650,26 @@ class GifUwuFixationCross:
         settle_seconds: float = 0.25,
         outro_seconds: float = 0.6,
         loop: bool = False,
+        mode: str = "video",
+        source=None,
+        pressure_reader=None,
+        left_key: str = "z",
+        right_key: str = "c",
+        takeover_pressure: float = DEFAULT_TAKEOVER_PRESSURE,
+        max_completions: int = 0,
+        completion_feedback: bool = True,
+        completion_label: str = "",
     ):
+        self._init_live(mode, source, pressure_reader, left_key, right_key, takeover_pressure)
+        if int(max_completions) < 0:
+            raise ValueError("max_completions must be >= 0 (0 = never ends)")
+        self.max_completions = int(max_completions)
+        self.completions = 0
+        self._was_ready = False
+        self.completion_feedback = bool(completion_feedback)
+        self.completion_label = str(completion_label)
+        self._completed_at = None
+        self._counter = None  # (text, Text) of the completion counter
         self.screen = screen
         self.background_color = tuple(int(c) for c in background_color)
         self.loop = bool(loop)
@@ -445,11 +703,12 @@ class GifUwuFixationCross:
         self.outro_seconds = max(0.01, float(outro_seconds))
         self.pressure_start = self.intro_seconds + self.transition_seconds + self.settle_seconds
         self.pressure_end = self.pressure_start + _PRESSURE_SEQUENCE_SECONDS * self.playback_slowdown
+        fallback = {**_BAND_DEFAULTS, "hold_seconds": 0.5 if mode == "video" else 0.3}
+        explicit = dict(min_pressure_start=min_pressure_start, max_pressure_start=max_pressure_start,
+                        threshold=threshold, hold_seconds=hold_seconds)
         self.config = PressureFeedbackConfig(
-            min_pressure_start=float(min_pressure_start),
-            max_pressure_start=float(max_pressure_start),
-            threshold=float(threshold),
-            hold_seconds=float(hold_seconds),
+            **{name: float(value if value is not None else getattr(source, name, fallback[name]))
+               for name, value in explicit.items()},
             max_scale=self.cross_max_scale,
         )
         self.state = PressureFeedbackState(self.config)
@@ -501,7 +760,16 @@ class GifUwuFixationCross:
             times.append(t)
             left.append(self._left_pressure(sequence_t))
             right.append(self._right_pressure(sequence_t))
-        return np.asarray(times), np.asarray(left), np.asarray(right)
+        return np.asarray(times), self._onto_band(np.asarray(left)), self._onto_band(np.asarray(right))
+
+    def _onto_band(self, pressures: np.ndarray) -> np.ndarray:
+        """Rescale scripted pressures from the reference band onto ``self.config``'s band."""
+        ref = tuple(_BAND_DEFAULTS[name] for name in ("min_pressure_start", "max_pressure_start", "threshold"))
+        cfg = self.config
+        target = (cfg.min_pressure_start, cfg.max_pressure_start, cfg.threshold)
+        if target == ref:
+            return pressures
+        return np.interp(pressures, (0.0, *ref, 1.0), (0.0, *target, 1.0))
 
     @staticmethod
     def _left_pressure(t: float) -> float:
@@ -542,15 +810,32 @@ class GifUwuFixationCross:
             return hold * (1.0 - _ease_in_out((t - 3.00) / 0.30))
         return 0.0
 
-    def start(self):
-        """(Re)start the animation clock from now."""
-        self._t0 = time.perf_counter()
+    @property
+    def is_complete(self) -> bool:
+        return self.max_completions > 0 and self.completions >= self.max_completions
 
     @property
     def is_finished(self) -> bool:
-        if self.loop or self._t0 is None or self.duration <= 0:
+        if self.is_complete:
+            return True
+        if self.loop or self._live or self._t0 is None or self.duration <= 0:
             return False
         return (time.perf_counter() - self._t0) >= self.duration
+
+    def start(self):
+        """(Re)start the demo and reset the completion count."""
+        super().start()
+        self.completions, self._was_ready, self._completed_at = 0, False, None
+
+    @property
+    def _side_start(self) -> float:
+        return self.intro_seconds + self.transition_seconds
+
+    def _on_takeover(self, now: float, from_start: bool) -> None:
+        """Finish the top-to-side fade if it is under way, then stay on the side view."""
+        elapsed = 0.0 if from_start else self._sample()[0]
+        self._live_from = self._side_start if from_start else min(elapsed, self._side_start)
+        self._live_t0 = now
 
     def _sample(self):
         if self._t0 is None:
@@ -565,12 +850,24 @@ class GifUwuFixationCross:
         """Draw the keyboard transition, synchronized pressure, and cross."""
         if self._t0 is None:
             self.start()
-        elapsed, left_pressure, right_pressure = self._sample()
         now = time.perf_counter()
+        live = self._poll_live(now)
+        if live is None:
+            elapsed, left_pressure, right_pressure = self._sample()
+        else:
+            left_pressure, right_pressure = live
+            elapsed = min(self._live_from + (now - self._live_t0), self._side_start)
         self.state.update(left_pressure=left_pressure, right_pressure=right_pressure, now=now)
+        ready = live is not None and self.state.is_ready  # only real pressures count, not the video
+        if ready and not self._was_ready:
+            self.completions += 1
+            self._completed_at = now
+        self._was_ready = ready
 
         self._draw_keyboard(elapsed, left_pressure, right_pressure)
         self._draw_cross()
+        if self.completion_feedback and self._live:
+            self._draw_counter()
 
     def _draw_keyboard(self, elapsed: float, left_pressure: float, right_pressure: float) -> None:
         top_alpha, side_alpha = self._keyboard_opacities(elapsed)
@@ -720,6 +1017,33 @@ class GifUwuFixationCross:
         ):
             self._draw_pressure_text(cx, cy + self.cross_half_height)
 
+    def _counter_rect(self, width: float, height: float):
+        """Where the counter goes: centered just below the keypad, clear of the instruction text above."""
+        cx, top = self.screen.width / 2.0, self._kb_rect[3] + self.pressure_text_gap
+        return (cx - width / 2, top, cx + width / 2, top + height)
+
+    def _draw_counter(self) -> None:
+        """Show the completion count in the success green (and a check mark just after a completion)."""
+        goal = f" / {self.max_completions}" if self.max_completions else ""
+        value = f"{self.completion_label + ': ' if self.completion_label else ''}{self.completions}{goal}"
+        if self._counter is None or self._counter[0] != value:
+            font_size = round(self.pressure_text_font_size * 1.4)
+            rect = self._counter_rect(font_size * (0.45 * len(value) + 1), font_size * 2.4)
+            self._counter = (value, Text(
+                value, dest_rect=rect, font_size=font_size, color=self.key_color_ideal,
+                content_scale=getattr(self.screen, "content_scale", 2.0)), rect, font_size)
+        self._counter[1].draw()
+        if self._completed_at is not None and time.perf_counter() - self._completed_at < _FLASH_SECONDS:
+            self._draw_check(self._counter[2], font_size=self._counter[3])
+
+    def _draw_check(self, rect, font_size: float) -> None:
+        """A green check mark just left of the counter, confirming a completion."""
+        size, thickness = font_size * 1.3, font_size * 0.28
+        x, y = rect[0] - size * 1.4, (rect[1] + rect[3]) / 2.0 - size / 2.0
+        elbow, tip = (x + size * 0.38, y + size * 0.95), (x + size, y + size * 0.1)
+        for start, end in (((x, y + size * 0.55), elbow), (elbow, tip)):
+            Line(start, end, thickness=thickness, color=self.key_color_ideal).draw()
+
     def _draw_side(self, side: str, cx: float, cy: float, length: float, color) -> None:
         if length <= 0:
             return
@@ -781,3 +1105,416 @@ class GifUwuFixationCross:
                 text_obj.set_text(value)
         text_obj.draw()
         return text_obj
+
+
+@dataclass(frozen=True)
+class HoldDemoPhase:
+    """One timed scene and its keyboard-pressure behavior.
+
+    ``pressure_mode`` scripts the pressures of the video. In an :class:`InteractiveTrial`
+    the pressures are real and the phase may also set ``wait_for`` (stay at least
+    ``duration`` seconds, then until the cross completes: ``"ready"``, or a key reaches the
+    response threshold: ``"response"``) and ``guard`` (the trial fails if a finger lifts).
+    """
+
+    name: str
+    duration: float
+    scene: str
+    pressure_mode: str = "green"
+    show_cross: bool = False
+    attempt: str | None = None
+    response: str | None = None
+    wait_for: str | None = None
+    guard: bool = False
+
+    def __post_init__(self):
+        if self.wait_for not in (None, "ready", "response"):
+            raise ValueError(f"wait_for must be None, 'ready' or 'response'; got {self.wait_for!r}")
+
+
+@dataclass(frozen=True)
+class InteractiveTrial:
+    """One real trial for :class:`GifUwuHoldTrial`: ``phases`` run in order on the participant's
+    pressures; if a ``guard`` phase loses a finger, ``fail`` is shown and the trial restarts."""
+
+    phases: tuple[HoldDemoPhase, ...]
+    fail: HoldDemoPhase
+
+    def __post_init__(self):
+        if not self.phases or any(p.duration <= 0 for p in (*self.phases, self.fail)):
+            raise ValueError("an interactive trial needs phases (and a fail phase) with positive durations")
+
+
+@dataclass(frozen=True)
+class TrialDemoFrame:
+    """State passed to the experiment's ``trial_drawer`` each frame."""
+
+    phase_name: str
+    scene: str
+    attempt: str | None
+    progress: float
+    language: str
+    display_rect: tuple[float, float, float, float]
+    cross_center: tuple[float, float]
+    content_scale: float
+    left_pressure: float
+    right_pressure: float
+    response: str | None = None
+    response_side: str | None = None  # "left" / "right" once the participant answered (interactive)
+
+
+TrialDrawer = Callable[[TrialDemoFrame], None]
+PressureProvider = Callable[[HoldDemoPhase, float], tuple[float, float]]
+
+
+class GifUwuHoldTrial(GifUwuFixationCross):
+    """Animate a pressure lesson around experiment-provided trial content.
+
+    ``trial_drawer`` draws only task-specific content in ``display_rect``.
+    ``phases`` controls the scenes and timing. ``pressure_provider`` may replace
+    the built-in pressure behaviors for a completely custom interaction (its
+    values are used as given). The pressure band (``min_pressure_start``,
+    ``max_pressure_start``, ``threshold``) comes from the arguments, else from
+    ``source`` (e.g. a ``WOOTING_ACQUISITION``, so the lesson matches the real task;
+    else 0.33 / 0.66 / 0.8; the built-in behaviors are rescaled onto it.
+
+    ``mode`` works as for :class:`GifUwuFixationCross`. The interactive modes also need
+    ``interactive``, an :class:`InteractiveTrial`: the participant then performs the trial
+    (cross, cue, imagery, answer) with real pressures; lifting a finger during a ``guard``
+    phase shows its ``fail`` phase and restarts, and finishing the last phase counts a
+    completion (``max_completions`` as for the cross). ``video_then_interactive`` plays
+    ``phases`` until the first Z / C press, then starts the first trial. ``completions``,
+    ``failures`` and ``events`` (dicts with ``event`` = ``"fingers_lifted"`` / ``"response"`` /
+    ``"completed"``, ``time``, ``attempt``, ``phase``) record what happened; ``on_event`` is
+    called with each. With ``completion_feedback`` a counter of completed trials (prefixed by
+    ``completion_label``) shows in the monitor's top-right corner. A finger counts as lifted
+    below ``finger_present_threshold`` (``None``: the source's, else 0.01); the answer is a
+    key reaching the response ``threshold``.
+
+    Example
+    -------
+    >>> trial = InteractiveTrial(
+    ...     phases=(HoldDemoPhase("acquire", 0.3, "acquire", show_cross=True, wait_for="ready"),
+    ...             HoldDemoPhase("imagery", 1.7, "imagery", guard=True),
+    ...             HoldDemoPhase("question", 0.5, "question", guard=True, wait_for="response"),
+    ...             HoldDemoPhase("result", 1.2, "correct")),
+    ...     fail=HoldDemoPhase("fail", 2.0, "incorrect"))
+    >>> demo = GifUwuHoldTrial(screen, trial_drawer=draw_trial, phases=video_phases, source=wooting,
+    ...                        mode="video_then_interactive", interactive=trial, max_completions=2)
+    >>> demo.play(response_handler)
+
+    Built-in pressure modes are ``released``, ``ramp_to_green``, ``green``,
+    ``lose_left``, ``left_weak``, ``remove_left``, ``left_released``,
+    ``recover_left``, ``respond_left``, ``respond_right``, and ``release``.
+    """
+
+    def __init__(
+        self,
+        screen,
+        *,
+        trial_drawer: TrialDrawer,
+        phases: Sequence[HoldDemoPhase] = (),
+        pressure_provider: PressureProvider | None = None,
+        language: str = "Fr",
+        background_color=(128, 128, 128),
+        keyboard_width: float = 300.0,
+        monitor_width: float | None = None,
+        content_top: float | None = None,
+        content_bottom: float | None = None,
+        min_pressure_start: float | None = None,
+        max_pressure_start: float | None = None,
+        threshold: float | None = None,
+        source=None,
+        playback_speed: float = 1.0,
+        loop: bool = False,
+        mode: str = "video",
+        interactive: InteractiveTrial | None = None,
+        pressure_reader=None,
+        left_key: str = "z",
+        right_key: str = "c",
+        takeover_pressure: float = DEFAULT_TAKEOVER_PRESSURE,
+        max_completions: int = 0,
+        finger_present_threshold: float | None = None,
+        on_event: Callable[[dict], None] | None = None,
+        completion_feedback: bool = True,
+        completion_label: str = "",
+    ):
+        super().__init__(
+            screen,
+            background_color=background_color,
+            keyboard_width=keyboard_width,
+            top_y=0,
+            min_pressure_start=min_pressure_start,
+            max_pressure_start=max_pressure_start,
+            threshold=threshold,
+            source=source,
+            cross_half_size=28.0,
+            cross_thickness=8.0,
+            show_pressure_text=False,
+            loop=False,
+            mode=mode,
+            pressure_reader=pressure_reader,
+            left_key=left_key,
+            right_key=right_key,
+            takeover_pressure=takeover_pressure,
+            max_completions=max_completions,
+            completion_feedback=completion_feedback,
+            completion_label=completion_label,
+        )
+        if mode != "video" and interactive is None:
+            raise ValueError(f"mode={mode!r} needs interactive=InteractiveTrial(...)")
+        self.interactive = interactive
+        self.on_event = on_event
+        self.finger_present_threshold = float(
+            finger_present_threshold if finger_present_threshold is not None
+            else getattr(source, "finger_present_threshold", 0.01))
+        self.failures, self.events = 0, []
+        self.language = str(language)
+        self.loop = bool(loop)
+        self.playback_speed = float(playback_speed)
+        if self.playback_speed <= 0:
+            raise ValueError("playback_speed must be greater than zero")
+        self.trial_drawer = trial_drawer
+        self.pressure_provider = pressure_provider or self._default_pressures
+        self.phases = tuple(phases)
+        if (self.phases or mode != "interactive") and (
+                not self.phases or any(phase.duration <= 0 for phase in self.phases)):
+            raise ValueError("phases must contain only positive durations")
+        self.timeline_duration = sum(phase.duration for phase in self.phases)
+        self.duration = self.timeline_duration / self.playback_speed
+
+        self._layout_monitor(monitor_width, content_top=content_top, content_bottom=content_bottom)
+        self._layout_side_keyboard()
+
+    def _layout_monitor(
+        self,
+        monitor_width: float | None,
+        content_top: float | None = None,
+        content_bottom: float | None = None,
+    ) -> None:
+        """Place the monitor (and, via `_layout_side_keyboard`, the keyboard below it).
+
+        With no `content_top`/`content_bottom`, anchors near the top of the screen
+        (the standalone preview's own look). With both given -- e.g. the space left
+        between a caller's top instruction text and bottom caption -- the monitor
+        shrinks (its 16:9 ratio kept, the keyboard's own size untouched) only as
+        much as needed for the whole monitor+keyboard block to fit inside that
+        window, then centers it there, so it never collides with either.
+        """
+        width_cap = float(monitor_width or min(720.0, self.screen.width * 0.60))
+        cx = self.screen.width / 2.0
+        default_top = max(38.0, self.screen.height * 0.055)
+
+        if content_bottom is None:
+            height = min(width_cap * 9.0 / 16.0, self.screen.height * 0.45)
+            width = width_cap
+            top = default_top if content_top is None else float(content_top)
+        else:
+            top_bound = default_top if content_top is None else float(content_top)
+            gap_to_keyboard = max(28.0, self.screen.height * 0.04)
+            side_height = self._side_rect[3] - self._side_rect[1]
+            available_height = max(1.0, float(content_bottom) - top_bound - gap_to_keyboard - side_height)
+            height = min(width_cap * 9.0 / 16.0, self.screen.height * 0.45, available_height)
+            width = height * 16.0 / 9.0
+            block_height = height + gap_to_keyboard + side_height
+            top = top_bound + max(0.0, (float(content_bottom) - top_bound - block_height) / 2.0)
+
+        self._monitor_rect = (cx - width / 2.0, top, cx + width / 2.0, top + height)
+        bezel = max(6.0, width * 0.012)
+        self._display_rect = (
+            self._monitor_rect[0] + bezel,
+            self._monitor_rect[1] + bezel,
+            self._monitor_rect[2] - bezel,
+            self._monitor_rect[3] - bezel,
+        )
+        inner_height = self._display_rect[3] - self._display_rect[1]
+        self._cross_center = (cx, self._display_rect[1] + inner_height * 0.42)
+
+    def _layout_side_keyboard(self) -> None:
+        side_width = self._side_rect[2] - self._side_rect[0]
+        side_height = self._side_rect[3] - self._side_rect[1]
+        cx = self.screen.width / 2.0
+        visible_top = self._monitor_rect[3] + max(28.0, self.screen.height * 0.04)
+        side_top = visible_top - side_height * (102.0 / 380.0)
+        self._side_rect = (
+            cx - side_width / 2.0,
+            side_top,
+            cx + side_width / 2.0,
+            side_top + side_height,
+        )
+
+    def _elapsed(self) -> float:
+        if self._t0 is None:
+            return 0.0
+        elapsed = (time.perf_counter() - self._t0) * self.playback_speed
+        if self.loop:
+            return elapsed % self.timeline_duration
+        return min(elapsed, self.timeline_duration)
+
+    def _phase_at(self, elapsed: float) -> tuple[HoldDemoPhase, float]:
+        cursor = 0.0
+        for phase in self.phases:
+            end = cursor + phase.duration
+            if elapsed < end:
+                return phase, (elapsed - cursor) / phase.duration
+            cursor = end
+        return self.phases[-1], 1.0
+
+    @staticmethod
+    def _green_pressures(progress: float) -> tuple[float, float]:
+        variation = 0.035 * math.sin(2.0 * math.pi * progress)
+        return 0.55 + variation, 0.45 + variation
+
+    def _default_pressures(self, phase: HoldDemoPhase, progress: float) -> tuple[float, float]:
+        """Return the built-in pressures, rescaled onto the band in use."""
+        left, right = self._scripted_pressures(phase, progress)
+        return float(self._onto_band(left)), float(self._onto_band(right))
+
+    def _scripted_pressures(self, phase: HoldDemoPhase, progress: float) -> tuple[float, float]:
+        """Pressures of the behavior named by the phase, written for the 0.33 / 0.66 / 0.8 band."""
+        mode = phase.pressure_mode
+        if mode == "released":
+            return 0.0, 0.0
+        if mode == "ramp_to_green":
+            ramp = _ease_in_out(progress)
+            return 0.55 * ramp, 0.45 * ramp
+        if mode == "green":
+            return self._green_pressures(progress)
+        if mode == "lose_left":
+            left, right = self._green_pressures(progress)
+            loss = _ease_in_out((progress - 0.45) / 0.18)
+            return left + (0.12 - left) * loss, right
+        if mode == "left_weak":
+            return 0.12, 0.45
+        if mode == "remove_left":
+            left, right = self._green_pressures(progress)
+            removal = _ease_in_out((progress - 0.40) / 0.60)
+            return left * (1.0 - removal), right
+        if mode == "left_released":
+            return 0.0, 0.45
+        if mode == "recover_left":
+            return 0.12 + 0.43 * _ease_in_out(progress), 0.45
+        if mode == "respond_left":
+            return 0.55 + 0.37 * _ease_in_out(progress), 0.45
+        if mode == "respond_right":
+            return 0.55, 0.45 + 0.37 * _ease_in_out(progress)
+        if mode == "release":
+            release = 1.0 - _ease_in_out(progress)
+            return 0.55 * release, 0.45 * release
+        raise ValueError(f"Unknown pressure mode: {mode!r}")
+
+    def start(self):
+        """(Re)start the demo and clear the completion / failure counts and the event log."""
+        super().start()
+        self.failures, self.events = 0, []
+
+    def _on_takeover(self, now: float, from_start: bool) -> None:
+        self.state = PressureFeedbackState(self.config)  # the video ran on its own clock
+        self._begin_trial(now)
+
+    def _begin_trial(self, now: float) -> None:
+        self._index, self._phase_t0, self._failed, self._side = 0, now, False, None
+
+    def _log(self, event: str, now: float, phase: str, **info) -> None:
+        record = {"event": event, "time": now, "attempt": self.completions + self.failures + 1,
+                  "phase": phase, **info}
+        self.events.append(record)
+        if self.on_event is not None:
+            self.on_event(record)
+
+    def _gate_open(self, phase: HoldDemoPhase, left: float, right: float, now: float) -> bool:
+        if phase.wait_for == "ready":
+            return self.state.is_ready
+        if phase.wait_for == "response":
+            if max(left, right) < self.config.threshold:
+                return False
+            self._side = "left" if left >= right else "right"
+            self._log("response", now, phase.name, side=self._side)
+            return True
+        return True
+
+    def _step_trial(self, now: float, left: float, right: float) -> tuple[HoldDemoPhase, float]:
+        """Advance the interactive trial by one frame; return the phase to draw and its progress."""
+        trial = self.interactive
+        if self.is_complete:
+            return trial.phases[-1], 1.0
+        phase = trial.fail if self._failed else trial.phases[self._index]
+        lifted = [key for key, pressure in ((self.left_key, left), (self.right_key, right))
+                  if pressure < self.finger_present_threshold]
+        if phase.guard and not self._failed and lifted:
+            self._log("fingers_lifted", now, phase.name, keys=lifted)
+            self.failures += 1
+            self._failed, self._phase_t0, phase = True, now, trial.fail
+        elif now - self._phase_t0 >= phase.duration and self._gate_open(phase, left, right, now):
+            self._phase_t0 = now
+            if self._failed:
+                self._begin_trial(now)
+            elif self._index + 1 < len(trial.phases):
+                self._index += 1
+            else:
+                self._log("completed", now, phase.name)
+                self.completions += 1
+                if not self.is_complete:
+                    self._begin_trial(now)
+            phase = trial.fail if self._failed else trial.phases[self._index]
+        return phase, min(1.0, (now - self._phase_t0) / phase.duration)
+
+    def draw(self, screen=None) -> None:
+        """Draw the generic shell, then call the experiment's renderer."""
+        if self._t0 is None:
+            self.start()
+        now = time.perf_counter()
+        live = self._poll_live(now)
+        if live is None:
+            elapsed = self._elapsed()
+            phase, progress = self._phase_at(elapsed)
+            left, right = self.pressure_provider(phase, progress)
+            self.state.update(left_pressure=left, right_pressure=right, now=elapsed)
+            side = None
+        else:
+            left, right = live
+            self.state.update(left_pressure=left, right_pressure=right, now=now)
+            phase, progress = self._step_trial(now, left, right)
+            side = self._side
+
+        frame = TrialDemoFrame(
+            phase_name=phase.name,
+            scene=phase.scene,
+            attempt=phase.attempt,
+            progress=progress,
+            language=self.language,
+            display_rect=self._display_rect,
+            cross_center=self._cross_center,
+            content_scale=getattr(self.screen, "content_scale", 2.0),
+            left_pressure=left,
+            right_pressure=right,
+            response=phase.response,
+            response_side=side,
+        )
+
+        # Draw first: flattened transparent padding must not erase the monitor.
+        self._side_base_texture.draw(self._side_rect)
+        self._draw_side_key("left", left)
+        self._draw_side_key("right", right)
+        self._draw_side_case_edge()
+
+        self._draw_monitor()
+        if phase.show_cross:
+            self._draw_cross()
+        self.trial_drawer(frame)
+        if self.completion_feedback and self._live:
+            self._draw_counter()
+
+    def _counter_rect(self, width: float, height: float):
+        """In the monitor: top-right corner of the display."""
+        x1, y1, x2, _ = self._display_rect
+        pad = (x2 - x1) * 0.02
+        return (x2 - pad - width, y1 + pad, x2 - pad, y1 + pad + height)
+
+    def _draw_monitor(self) -> None:
+        x1, y1, x2, y2 = self._monitor_rect
+        cx = (x1 + x2) / 2.0
+        Rectangle((cx - 18, y2, cx + 18, y2 + 14), fill=True, color=(37, 42, 52)).draw()
+        Rectangle((cx - 70, y2 + 12, cx + 70, y2 + 20), fill=True, color=(37, 42, 52)).draw()
+        Rectangle(self._monitor_rect, fill=True, color=(37, 42, 52)).draw()
+        Rectangle(self._display_rect, fill=True, color=self.background_color).draw()

@@ -48,18 +48,21 @@ never import a keyboard package; they render feedback for any object satisfying
 Instruction demos
 -----------------
 
-Scripted keypad animations to play while presenting instructions (see
-:doc:`wooting`). They never import a keyboard package.
+Keypad animations to play while presenting instructions, scripted or driven by
+the participant's real pressures (see :doc:`wooting`). They never import a
+keyboard package.
 
 .. autoclass:: tachypy.instruction_demos.GifUwuFixationCross
-   :members: start, draw, is_finished
+   :members: start, draw, play, is_finished, is_complete, is_live, caption_ready
 
 .. autoclass:: tachypy.instruction_demos.GifUwuScrollbar
-   :members: start, draw, is_finished
+   :members: start, draw, play, is_finished, is_complete, is_live, caption_ready
 
 .. autoclass:: tachypy.instruction_demos.GifUwuHoldTrial
-   :members: start, draw, is_finished
+   :members: start, draw, play, is_finished, is_complete, is_live, caption_ready
 
 .. autoclass:: tachypy.instruction_demos.HoldDemoPhase
+
+.. autoclass:: tachypy.instruction_demos.InteractiveTrial
 
 .. autoclass:: tachypy.instruction_demos.TrialDemoFrame
