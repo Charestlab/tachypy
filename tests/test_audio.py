@@ -22,10 +22,10 @@ def test_play_expands_mono_data_to_requested_channels(monkeypatch):
     _patch_tachyaudio(monkeypatch)
     captured = {}
 
-    def fake_playback(self, data, delay):
+    def fake_playback(self, data, target_ns, stream, cancelled, future):
         captured["shape"] = data.shape
         captured["dtype"] = data.dtype
-        captured["delay"] = delay
+        captured["target_ns"] = target_ns
 
     class FakeThread:
         def __init__(self, target, args, daemon):
@@ -35,7 +35,8 @@ def test_play_expands_mono_data_to_requested_channels(monkeypatch):
         def start(self):
             self.target(*self.args)
 
-    monkeypatch.setattr(Audio, "_playback_thread", fake_playback)
+    monkeypatch.setattr(Audio, "_run_playback", fake_playback)
+    monkeypatch.setattr(Audio, "_open_stream", lambda self: object())
     monkeypatch.setattr("tachypy.audio.threading.Thread", FakeThread)
     monkeypatch.setattr("tachypy.audio.time.monotonic_ns", lambda: 2_000_000_000)
 
@@ -46,7 +47,7 @@ def test_play_expands_mono_data_to_requested_channels(monkeypatch):
 
     assert captured["shape"] == (3, 2)
     assert captured["dtype"] == np.float32
-    assert captured["delay"] == 0
+    assert captured["target_ns"] == 2_000_000_000
 
 
 def test_play_raises_for_wrong_channel_count(monkeypatch):
