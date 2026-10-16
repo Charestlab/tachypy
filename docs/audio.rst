@@ -110,13 +110,25 @@ Testing
 Unit tests mock ``tachyaudio.OutputStream``. Hardware/audio-device validation
 should remain a dedicated local or lab-machine test, separate from CI.
 
-Experimental native scheduling (macOS)
---------------------------------------
+Experimental native scheduling (macOS, Linux ALSA)
+----------------------------------------------------
 
 Requires the companion tachyaudio native-scheduling development build; the
 released minimum dependency 0.2.0b2 does not provide this API. Install that build
 before testing this branch. Unsupported platforms or old builds fail explicitly.
 The default software mode remains compatible with the existing dependency.
+
+On Linux, native scheduling goes through direct ALSA, not PulseAudio/PipeWire.
+Pass an explicit hardware device, e.g. ``device_id="hw:CARD=PCH,DEV=0"``
+(list candidates with ``aplay -L``); ``default``/``pulse``/``plughw`` device
+ids are rejected. tachyaudio negotiates float32, then signed-32, then
+signed-16 interleaved output depending on what the codec supports — check
+``tachyaudio.ScheduledOutputStream(...).status()['device_format']`` if you
+need to know which was selected. The worker thread makes a best-effort
+request for real-time (``SCHED_FIFO``) scheduling; on an unprivileged account
+without an ``RLIMIT_RTPRIO`` grant this silently falls back to normal
+priority (see tachyaudio's ``docs/ubuntu-scheduling.md`` for how to grant it
+on a lab machine for better protection against underruns under load).
 
 .. code-block:: python
 

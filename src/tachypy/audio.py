@@ -54,7 +54,10 @@ class Audio:
             Software write/drain timeout; native mode total completion timeout,
             including the wait until the scheduled onset.
         timing_mode : str
-            ``"software"`` (default) or experimental macOS ``"native"``.
+            ``"software"`` (default) or experimental device-clock ``"native"``
+            (macOS Core Audio, or Linux via direct ALSA with an explicit
+            ``device_id="hw:CARD,DEVICE"``; Windows native scheduling is not
+            yet available).
         minimum_lead_time : float
             Minimum advance notice in seconds for native scheduling.
         """
