@@ -1,7 +1,7 @@
 # Native audio integration validation — 2026-10-15
 
-Development branch: `codex/native-scheduling`, based on main `7d8b53f`.
-Requires the companion tachyaudio `codex/native-scheduling` branch.
+Development branch: `dev_0.2.3`, based on main `7d8b53f`.
+Requires the companion tachyaudio `dev_0.2.0b3` branch.
 No release or minimum dependency bump is included: native timing is opt-in and
 old tachyaudio installations fail explicitly when native mode is selected.
 Merge/release the tachyaudio API before advertising a pip-installable native mode.
