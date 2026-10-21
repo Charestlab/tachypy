@@ -41,6 +41,12 @@ after completion. Close each ``Audio`` instance when the experiment finishes.
 The scheduled time is the software submission time, not a measured acoustic
 onset. Device buffering still adds latency.
 
+On Linux this mode goes through tachyaudio's ``miniaudio`` backend and the
+desktop sound server (PulseAudio/PipeWire), so ``device_id`` values are
+sound-server nodes from ``tachyaudio.list_devices()``. Measured by acoustic
+loopback, onsets varied by 3.4 ms (standard deviation) around ``when``. For
+timing-critical stimuli use native mode (below), which bypasses the server.
+
 ``play()`` returns a ``concurrent.futures.Future``. Device-open errors are raised
 directly from ``play()`` or ``prepare()``; worker errors are raised by
 ``playback.result()`` or ``audio.wait()`` (which waits for the latest request).
@@ -68,7 +74,9 @@ the device-start cost again after draining.
 Configuration
 -------------
 
-The following parameters are passed through to ``tachyaudio.OutputStream``:
+In the default software mode, the following parameters are passed through to
+``tachyaudio.OutputStream`` (native mode: see below; ``latency`` there is the
+Linux ALSA buffer and ``block_size`` is rejected):
 
 - ``sample_rate``
 - ``channels``
@@ -110,25 +118,21 @@ Testing
 Unit tests mock ``tachyaudio.OutputStream``. Hardware/audio-device validation
 should remain a dedicated local or lab-machine test, separate from CI.
 
-Experimental native scheduling (macOS, Linux ALSA)
-----------------------------------------------------
+Native scheduling (macOS, Linux)
+--------------------------------
 
-Requires the companion tachyaudio native-scheduling development build; the
-released minimum dependency 0.2.0b2 does not provide this API. Install that build
-before testing this branch. Unsupported platforms or old builds fail explicitly.
-The default software mode remains compatible with the existing dependency.
+``timing_mode="native"`` hands each sound to tachyaudio's
+``ScheduledOutputStream``: native code places its first sample on the device
+clock at ``when``, without Python running at onset. Measured on Linux by
+acoustic loopback, onset jitter was about 70 µs, against 3.4 ms for the
+software mode; use it for timing-critical stimuli, with a wired interface. It
+needs a tachyaudio build newer than 0.2.0b2 (install from source until the next
+release) and fails explicitly otherwise.
 
-On Linux, native scheduling goes through direct ALSA, not PulseAudio/PipeWire.
-Pass an explicit hardware device, e.g. ``device_id="hw:CARD=PCH,DEV=0"``
-(list candidates with ``aplay -L``); ``default``/``pulse``/``plughw`` device
-ids are rejected. tachyaudio negotiates float32, then signed-32, then
-signed-16 interleaved output depending on what the codec supports — check
-``tachyaudio.ScheduledOutputStream(...).status()['device_format']`` if you
-need to know which was selected. The worker thread makes a best-effort
-request for real-time (``SCHED_FIFO``) scheduling; on an unprivileged account
-without an ``RLIMIT_RTPRIO`` grant this silently falls back to normal
-priority (see tachyaudio's ``docs/ubuntu-scheduling.md`` for how to grant it
-on a lab machine for better protection against underruns under load).
+On Linux it plays through ALSA directly, bypassing PulseAudio/PipeWire, so it
+needs a hardware ``device_id``. Leave it out once: the error lists every output
+(monitor speakers over HDMI/DisplayPort included) with its id and whether it is
+free. On macOS the default output is used unless ``device_id`` is given.
 
 .. code-block:: python
 
@@ -136,48 +140,45 @@ on a lab machine for better protection against underruns under load).
    import numpy as np
    from tachypy.audio import Audio
 
-   audio = Audio(sample_rate=48000, channels=1, timing_mode="native",
-                 minimum_lead_time=0.050, timeout=2)
+   tone = (0.1 * np.sin(2 * np.pi * 1000 * np.arange(4800) / 48000)).astype(np.float32)
+
+   audio = Audio(sample_rate=48000, device_id="hw:CARD=PCH,DEV=0", timing_mode="native")
    try:
        audio.prepare()
-       stimulus = np.zeros(4800, dtype=np.float32)
-       timing = audio.play(stimulus, when=time.monotonic() + 0.250).result()
-       print(timing.predicted_error_seconds)
+       start = time.monotonic() + 0.100
+       first = audio.play(tone, when=start)
+       second = audio.play(tone, when=start + len(tone) / 48000)  # back to back
+       print(first.result().predicted_onset_ns, second.result().predicted_onset_ns)
    finally:
        audio.close()
 
-``play`` copies and submits the entire stimulus synchronously, before returning.
-The native callback then places samples against the device output clock without
-requiring Python to run at onset. Choose the device's actual sample rate; no
-resampling or device rate changes are performed. Mono duplicates to all device
-output channels; otherwise use the complete device output channel count.
-``block_size`` and ``latency`` must be omitted in this mode.
+Only ``device_id`` (Linux), ``sample_rate`` and ``timing_mode`` are needed:
+``latency`` (the ALSA buffer) and ``minimum_lead_time`` are chosen
+automatically, and mono stimuli are copied to every device channel. tachyaudio's
+``docs/linux-scheduling.md`` lists every parameter and common errors.
 
-Only one outstanding stimulus is supported per Audio instance. Even requests for
-nonoverlapping future times are rejected until the current Future completes.
-``when=0``, past deadlines, insufficient lead, and native failures are errors,
-not requests to play late. Lead is checked after copying as well as before it;
-allow margin for preparation. Prepare well before choosing the deadline.
+- ``play`` copies the stimulus and submits it before returning. ``when`` must be
+  at least the stream's lead time ahead (measured on Linux, 8–12 ms on the
+  devices tested; 50 ms on macOS). A late or too-close deadline raises; nothing
+  is played late.
+- Several sounds can be queued ahead (Linux: up to 32; macOS: one at a time),
+  back to back if wanted. Sounds overlapping in time are rejected.
+- Each Future returns ``tachyaudio.ScheduledTiming``, device-clock estimates
+  rather than acoustic measurements, after estimated completion. A dropped
+  sound raises: mark the trial invalid. Failures also go to ``last_error`` and
+  a warning.
+- ``future.result(timeout=...)`` only limits the wait; ``Audio(timeout=...)``
+  limits completion. Cancel with ``stop()``, not ``Future.cancel()``; samples
+  already in the device cannot be recalled.
+- The sample rate must be one the device supports (nothing is resampled);
+  ``block_size`` is rejected.
 
-The Future returns ``tachyaudio.ScheduledTiming`` after rendering and estimated
-device completion, not after externally confirmed acoustic completion. Its
-``predicted_error_seconds`` is a device-clock estimate. Late rendering may drop
-the stimulus or truncate a stimulus already in progress; mark that trial invalid.
-Calling ``future.result(timeout=...)`` only limits the caller's wait; it does not
-cancel playback. ``Audio(timeout=...)`` limits native completion from the worker
-start, including the scheduled lead. ``stop()`` cancels and closes; samples already
-handed to hardware cannot be recalled. ``Future.cancel()`` cannot cancel native
-requests because submission has already occurred. Stream reuse happens after
-estimated completion, and native worker failures remain visible via the Future,
-``last_error``, and a warning.
-
-Run the silent end-to-end probe on a macOS device configured for 48 kHz:
+On macOS, a silent end-to-end probe tests idle playback and Python holding the
+GIL across onset:
 
 .. code-block:: bash
 
    python examples/measure_native_audio.py --trials 100 --output native-results.json
 
-It tests idle playback and holding Python's GIL across onset, preserving failures
-and raw internal estimates. It does not measure voltage at the output or sound
-at the ear. See tachyaudio's ``docs/electrical-loopback.md`` for external validation
-and ``docs/native-scheduling.md`` for the architecture and acceptance protocol.
+It reports internal estimates, not sound at the ear; see tachyaudio's
+``docs/electrical-loopback.md`` for external validation.
