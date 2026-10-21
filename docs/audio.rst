@@ -165,7 +165,12 @@ completion. Cancel with ``stop()``, not ``Future.cancel()``. Samples already
 sent to the device cannot be recalled. Playback failures also set ``last_error``.
 
 ``minimum_lead_time=None`` derives the advance notice from native output timing.
-On Linux, ``latency=None`` selects the ALSA buffer automatically. See tachyaudio's
+On Linux, ``latency=None`` selects the ALSA buffer automatically: with real-time
+priority 2 ms on an onboard/PCI card (about 4.5 ms lead time) and 5 ms on USB.
+Onsets land on the sample grid and are never early, so the placement error is
+0 to 1 sample: up to 20.8 µs at 48 kHz and 5.2 µs at 192 kHz. Use the highest
+``sample_rate`` your device supports when onset precision matters, and schedule
+with some margin beyond the lead time. See tachyaudio's
 ``docs/linux-scheduling.md`` for device setup and parameters.
 
 On macOS, omit ``device_id`` for the default output or use
