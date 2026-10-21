@@ -11,10 +11,16 @@ from tachypy.audio import Audio
 
 class ScheduledStream:
     def __init__(self, **kwargs):
+        self.kwargs = kwargs
         self.closed = False
-        self.ready = False
+        self.ready = set()
         self.error = None
-        self.result = object()
+        self.scheduled = {}
+        self.cancelled = []
+
+    @property
+    def failed(self):
+        return self.closed or self.error is not None
 
     def start(self):
         pass
@@ -22,19 +28,22 @@ class ScheduledStream:
     def schedule(self, data, *, when):
         if when < time.monotonic() + 0.050:
             raise ValueError("insufficient lead")
-        self.data = data.copy()
-        self.when = when
+        if any(abs(when - other) < 0.001 for other, _ in self.scheduled.values()):
+            raise ValueError("overlaps a stimulus already scheduled on this stream")
+        stimulus = len(self.scheduled) + 1
+        self.scheduled[stimulus] = (when, data.copy())
+        return stimulus
 
-    def wait(self, timeout):
+    def wait(self, timeout, stimulus=None):
         if self.error:
             raise self.error
-        if not self.ready:
+        if stimulus not in self.ready:
             time.sleep(0.001)
             raise TimeoutError()
-        return self.result
+        return ("timing", stimulus)
 
-    def cancel(self):
-        self.cancelled = True
+    def cancel(self, stimulus=None):
+        self.cancelled.append(stimulus)
 
     def close(self):
         self.closed = True
@@ -53,22 +62,25 @@ def native(monkeypatch):
     return opened
 
 
-def test_native_submits_synchronously_and_reuses(native):
+def test_native_queues_sounds_on_one_stream(native):
     audio = Audio(timing_mode="native")
     try:
         audio.prepare()
         data = np.ones(8, dtype=np.float32)
         target = time.monotonic() + 1
-        future = audio.play(data, when=target)
+        first = audio.play(data, when=target)
         data[:] = 0
-        assert native[0].when == target
-        assert np.all(native[0].data == 1)
-        assert not future.cancel()
-        with pytest.raises(RuntimeError, match="outstanding"):
+        second = audio.play(data, when=target + 0.5)
+        assert native[0].scheduled[1][0] == target
+        assert np.all(native[0].scheduled[1][1] == 1)
+        assert not first.cancel()
+        with pytest.raises(ValueError, match="overlaps"):
             audio.play(data, when=target)
-        native[0].ready = True
-        assert future.result(1) is native[0].result
-        assert audio.play(data, when=target).result(1) is native[0].result
+        assert not native[0].closed
+        assert audio.is_playing
+        native[0].ready.update({1, 2})
+        assert first.result(1) == ("timing", 1)
+        assert second.result(1) == ("timing", 2)
         assert len(native) == 1
     finally:
         audio.close()
@@ -80,6 +92,7 @@ def test_native_cancel_and_reopen(native):
     audio.stop()
     with pytest.raises(CancelledError):
         future.result(1)
+    assert native[0].cancelled == [1]
     assert native[0].closed
     audio.prepare()
     assert len(native) == 2
@@ -131,9 +144,20 @@ def test_native_unavailable_has_no_fallback(monkeypatch):
         Audio(timing_mode="native").prepare()
 
 
-@pytest.mark.parametrize("kwargs", [{"latency": 0.01}, {"block_size": 128},
+@pytest.mark.parametrize("kwargs", [{"block_size": 128},
                                        {"minimum_lead_time": -1}, {"timing_mode": "other"}])
 def test_native_invalid_configuration(native, kwargs):
     options = {"timing_mode": "native", **kwargs}
     with pytest.raises(ValueError):
         Audio(**options)
+
+
+def test_native_latency_sets_device_buffer(native):
+    Audio(timing_mode="native").prepare()
+    Audio(timing_mode="native", latency=0.005, minimum_lead_time=0.015).prepare()
+    assert "latency" not in native[0].kwargs
+    assert "minimum_lead_time" not in native[0].kwargs
+    assert native[1].kwargs["latency"] == 0.005
+    assert native[1].kwargs["minimum_lead_time"] == 0.015
+    with pytest.raises(ValueError, match="block_size"):
+        Audio(timing_mode="native", block_size=64)

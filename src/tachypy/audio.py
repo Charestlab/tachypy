@@ -34,7 +34,7 @@ class Audio:
         latency=None,
         timeout=None,
         timing_mode="software",
-        minimum_lead_time=0.050,
+        minimum_lead_time=None,
     ):
         """Initialize audio playback state.
 
@@ -49,7 +49,10 @@ class Audio:
             retained for source compatibility; TachyPy no longer owns alternate
             audio backends.
         block_size, device_id, latency : optional
-            Passed through to ``tachyaudio.OutputStream``.
+            Passed through to ``tachyaudio.OutputStream``. In Linux native
+            mode ``latency`` is the ALSA device buffer in seconds, passed to
+            ``tachyaudio.ScheduledOutputStream``; leave it ``None`` to let
+            tachyaudio choose it from the real-time priority available.
         timeout : float | None
             Software write/drain timeout; native mode total completion timeout,
             including the wait until the scheduled onset.
@@ -58,8 +61,10 @@ class Audio:
             (macOS Core Audio, or Linux via direct ALSA with an explicit
             ``device_id="hw:CARD,DEVICE"``; Windows native scheduling is not
             yet available).
-        minimum_lead_time : float
-            Minimum advance notice in seconds for native scheduling.
+        minimum_lead_time : float | None
+            Minimum advance notice in seconds for native scheduling. ``None``
+            (default) lets tachyaudio derive it from the device's measured
+            output delay on Linux, and use 50 ms on macOS.
         """
         self.sample_rate = int(sample_rate)
         self.channels = int(channels)
@@ -86,10 +91,12 @@ class Audio:
         self.timeout = timeout
         if timing_mode not in ("software", "native"):
             raise ValueError("timing_mode must be 'software' or 'native'")
-        if not math.isfinite(minimum_lead_time) or minimum_lead_time < 0:
+        if minimum_lead_time is not None and (
+            not math.isfinite(minimum_lead_time) or minimum_lead_time < 0
+        ):
             raise ValueError("minimum_lead_time must be finite and nonnegative")
-        if timing_mode == "native" and (block_size is not None or latency is not None):
-            raise ValueError("native timing uses device settings; omit block_size and latency")
+        if timing_mode == "native" and block_size is not None:
+            raise ValueError("native timing chooses its own period; omit block_size")
         self.timing_mode = timing_mode
         self.minimum_lead_time = minimum_lead_time
         if timeout is not None and (not math.isfinite(timeout) or timeout < 0):
@@ -108,11 +115,16 @@ class Audio:
             factory = getattr(tachyaudio, "ScheduledOutputStream", None)
             if factory is None:
                 raise RuntimeError("native timing requires a tachyaudio build with ScheduledOutputStream")
+            options = {}
+            if self.latency is not None:
+                options["latency"] = self.latency
+            if self.minimum_lead_time is not None:
+                options["minimum_lead_time"] = self.minimum_lead_time
             return factory(
                 sample_rate=self.sample_rate,
                 channels=self.channels,
                 device_id=self.device_id,
-                minimum_lead_time=self.minimum_lead_time,
+                **options,
             )
         return tachyaudio.OutputStream(
             sample_rate=self.sample_rate,
@@ -151,17 +163,21 @@ class Audio:
         failures. Device opening happens synchronously unless ``prepare()``
         already supplied an idle stream. Concurrent sounds use separate streams.
 
-        Native mode instead submits immediately to the device-clock scheduler,
-        requires an explicit future deadline, and rejects overlapping requests.
-        Its Future returns ScheduledTiming estimates, not physical measurements.
-        Use stop(), not Future.cancel(), to cancel an already submitted request.
+        Native mode instead submits immediately to the device-clock scheduler
+        and requires an explicit future deadline. Several sounds can be queued
+        ahead on one stream (Linux: up to 32; macOS: one at a time), back to
+        back if desired; sounds overlapping in time are rejected. Its Future
+        returns ScheduledTiming estimates, not physical measurements. Use
+        stop(), not Future.cancel(), to cancel submitted requests.
         """
         buffer = self._prepare_buffer(data)
         when = float(when)
         if not math.isfinite(when):
             raise ValueError("when must be finite")
-        if self.timing_mode == "native" and when <= 0:
-            raise ValueError("native timing requires an explicit future monotonic 'when'")
+        if self.timing_mode == "native":
+            if when <= 0:
+                raise ValueError("native timing requires an explicit future monotonic 'when'")
+            return self._play_native(buffer, when)
         current_time = time.monotonic_ns()
         delay = int((float(when) * 1e9) - current_time)
         if delay < 0 and when != 0 and self.timing_mode == "software":
@@ -172,23 +188,12 @@ class Audio:
         with self._lock:
             if self._stopping:
                 raise RuntimeError("audio is stopping")
-            if self.timing_mode == "native" and self._active:
-                raise RuntimeError("native timing supports only one outstanding stimulus per Audio")
             try:
                 stream = self._stream if self._stream is not None else self._open_stream()
             except Exception as error:
                 self.last_error = error
                 raise
             self._stream = None
-            if self.timing_mode == "native":
-                try:
-                    stream.start()
-                    stream.schedule(buffer, when=when)
-                except BaseException as error:
-                    self.last_error = error
-                    stream.close()
-                    raise
-                future.set_running_or_notify_cancel()
             thread = threading.Thread(
                 target=self._run_playback,
                 args=(buffer, target_ns, stream, cancelled, future),
@@ -206,6 +211,73 @@ class Audio:
                 stream.close()
                 raise
         return future
+
+    def _play_native(self, buffer, when):
+        """Queue one stimulus on the shared native stream and track it."""
+        future = Future()
+        cancelled = threading.Event()
+        with self._lock:
+            if self._stopping:
+                raise RuntimeError("audio is stopping")
+            stream = self._stream
+            try:
+                if stream is None:
+                    stream = self._open_stream()
+                    try:
+                        stream.start()
+                    except BaseException:
+                        stream.close()
+                        raise
+                    self._stream = stream
+                stimulus = stream.schedule(buffer, when=when)
+            except BaseException as error:
+                self.last_error = error
+                if stream is not None and not self._active:
+                    stream.close()
+                    self._stream = None
+                raise
+            future.set_running_or_notify_cancel()
+            thread = threading.Thread(
+                target=self._run_native, args=(stream, stimulus, cancelled, future), daemon=True
+            )
+            self._active[future] = (cancelled, thread)
+            self._last_playback = future
+            self._thread = thread
+            self.is_playing = True
+            try:
+                thread.start()
+            except BaseException:
+                del self._active[future]
+                self.is_playing = bool(self._active)
+                stream.cancel(stimulus)
+                raise
+        return future
+
+    def _run_native(self, stream, stimulus, cancelled, future):
+        error = None
+        result = None
+        try:
+            result = self._wait_native(stream, stimulus, cancelled)
+        except BaseException as failure:
+            error = failure
+        # A missed onset only drops this sound; a stream fault ends the stream.
+        broken = error is not None and stream.failed
+        with self._lock:
+            self._active.pop(future, None)
+            self.is_playing = bool(self._active)
+            if broken and self._stream is stream:
+                self._stream = None
+            if error is not None and not isinstance(error, CancelledError):
+                self.last_error = error
+        if broken:
+            stream.close()
+        if not future.cancelled():
+            if error is None:
+                future.set_result(result)
+            else:
+                future.set_exception(error)
+        if error is not None and not isinstance(error, CancelledError):
+            warnings.warn(f"Audio playback failed: {error}", RuntimeWarning, stacklevel=2)
 
     def wait(self, timeout=None):
         """Wait for the most recently requested sound and raise its failure."""
@@ -238,9 +310,6 @@ class Audio:
         error = None
         result = None
         try:
-            if self.timing_mode == "native":
-                result = self._wait_native(stream, cancelled)
-                return
             if not future.set_running_or_notify_cancel():
                 raise CancelledError()
             while True:
@@ -304,17 +373,17 @@ class Audio:
             if error is not None and not isinstance(error, CancelledError):
                 warnings.warn(f"Audio playback failed: {error}", RuntimeWarning, stacklevel=2)
 
-    def _wait_native(self, stream, cancelled):
+    def _wait_native(self, stream, stimulus, cancelled):
         deadline = None if self.timeout is None else time.monotonic() + self.timeout
         while True:
             if cancelled.is_set():
-                stream.cancel()
+                stream.cancel(stimulus)
                 raise CancelledError()
             if deadline is not None and time.monotonic() >= deadline:
-                stream.cancel()
+                stream.cancel(stimulus)
                 raise TimeoutError("native playback exceeded timeout")
             try:
-                result = stream.wait(timeout=0.010)
+                result = stream.wait(timeout=0.010, stimulus=stimulus)
             except TimeoutError:
                 continue
             if cancelled.is_set():
