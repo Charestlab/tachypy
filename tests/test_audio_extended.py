@@ -179,6 +179,19 @@ def test_drain_timeout_surfaces_and_closes_stream(streams):
     audio.close()
 
 
+def test_warns_and_plays_immediately_for_past_when_in_software_mode(streams):
+    audio = Audio()
+    try:
+        when = time.monotonic() - 0.1
+        with pytest.warns(RuntimeWarning, match="'when' time is in the past; playing immediately"):
+            future = audio.play(np.zeros(4), when=when)
+            future.result(timeout=1)
+        assert streams[0].frames == [0.0] * 4
+        assert not audio.is_playing
+    finally:
+        audio.close()
+
+
 def test_play_owns_buffer_during_scheduled_playback(streams):
     audio = Audio()
     data = np.ones(4, dtype=np.float32)
