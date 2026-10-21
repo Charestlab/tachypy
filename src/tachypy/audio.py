@@ -49,10 +49,12 @@ class Audio:
             retained for source compatibility; TachyPy no longer owns alternate
             audio backends.
         block_size, device_id, latency : optional
-            Passed through to ``tachyaudio.OutputStream``. In Linux native
-            mode ``latency`` is the ALSA device buffer in seconds, passed to
+            Passed through to ``tachyaudio.OutputStream``. In native
+            mode ``latency`` is the device buffer in seconds, passed to
             ``tachyaudio.ScheduledOutputStream``; leave it ``None`` to let
-            tachyaudio choose it from the real-time priority available.
+            tachyaudio choose it on Linux or preserve the shared HAL buffer
+            on macOS. An explicit macOS latency changes the shared device
+            buffer until close; avoid conflicting settings in concurrent streams.
         timeout : float | None
             Software write/drain timeout; native mode total completion timeout,
             including the wait until the scheduled onset.
@@ -64,7 +66,7 @@ class Audio:
         minimum_lead_time : float | None
             Minimum advance notice in seconds for native scheduling. ``None``
             (default) lets tachyaudio derive it from the device's measured
-            output delay on Linux, and use 50 ms on macOS.
+            output delay on Linux and macOS.
         """
         self.sample_rate = int(sample_rate)
         self.channels = int(channels)
@@ -165,7 +167,7 @@ class Audio:
 
         Native mode instead submits immediately to the device-clock scheduler
         and requires an explicit future deadline. Several sounds can be queued
-        ahead on one stream (Linux: up to 32; macOS: one at a time), back to
+        ahead on one stream (up to 32 on Linux and macOS), back to
         back if desired; sounds overlapping in time are rejected. Its Future
         returns ScheduledTiming estimates, not physical measurements. Use
         stop(), not Future.cancel(), to cancel submitted requests.

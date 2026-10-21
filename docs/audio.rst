@@ -76,7 +76,7 @@ Configuration
 
 In the default software mode, the following parameters are passed through to
 ``tachyaudio.OutputStream`` (native mode: see below; ``latency`` there is the
-Linux ALSA buffer and ``block_size`` is rejected):
+ALSA/HAL device buffer and ``block_size`` is rejected):
 
 - ``sample_rate``
 - ``channels``
@@ -123,9 +123,11 @@ Native scheduling (macOS, Linux)
 
 ``timing_mode="native"`` hands each sound to tachyaudio's
 ``ScheduledOutputStream``: native code places its first sample on the device
-clock at ``when``, without Python running at onset. Measured on Linux by
-acoustic loopback, onset jitter was about 70 µs, against 3.4 ms for the
-software mode; use it for timing-critical stimuli, with a wired interface. It
+clock at ``when``, without Python running at onset. Measured by acoustic
+loopback, onset jitter was about 70 µs on Linux (wired interface) and about
+5 µs on macOS (integrated speakers/microphone), against 3.4 ms for the software
+mode; the macOS figure held under Python CPU load. Use native mode for
+timing-critical stimuli. It
 needs a tachyaudio build newer than 0.2.0b2 (install from source until the next
 release) and fails explicitly otherwise.
 
@@ -152,33 +154,33 @@ free. On macOS the default output is used unless ``device_id`` is given.
    finally:
        audio.close()
 
-Only ``device_id`` (Linux), ``sample_rate`` and ``timing_mode`` are needed:
-``latency`` (the ALSA buffer) and ``minimum_lead_time`` are chosen
-automatically, and mono stimuli are copied to every device channel. tachyaudio's
-``docs/linux-scheduling.md`` lists every parameter and common errors.
+``play()`` copies and queues up to 32 non-overlapping sounds. Submit each
+``when`` at least the stream's lead time ahead; late requests raise. Call
+``prepare()`` before computing the first deadline. Mono is duplicated across
+device channels; no resampling is performed and ``block_size`` is rejected.
 
-- ``play`` copies the stimulus and submits it before returning. ``when`` must be
-  at least the stream's lead time ahead (measured on Linux, 8–12 ms on the
-  devices tested; 50 ms on macOS). A late or too-close deadline raises; nothing
-  is played late.
-- Several sounds can be queued ahead (Linux: up to 32; macOS: one at a time),
-  back to back if wanted. Sounds overlapping in time are rejected.
-- Each Future returns ``tachyaudio.ScheduledTiming``, device-clock estimates
-  rather than acoustic measurements, after estimated completion. A dropped
-  sound raises: mark the trial invalid. Failures also go to ``last_error`` and
-  a warning.
-- ``future.result(timeout=...)`` only limits the wait; ``Audio(timeout=...)``
-  limits completion. Cancel with ``stop()``, not ``Future.cancel()``; samples
-  already in the device cannot be recalled.
-- The sample rate must be one the device supports (nothing is resampled);
-  ``block_size`` is rejected.
+Each Future returns ``ScheduledTiming`` estimates after estimated completion.
+``future.result(timeout=...)`` limits waiting; ``Audio(timeout=...)`` limits
+completion. Cancel with ``stop()``, not ``Future.cancel()``. Samples already
+sent to the device cannot be recalled. Playback failures also set ``last_error``.
 
-On macOS, a silent end-to-end probe tests idle playback and Python holding the
-GIL across onset:
+``minimum_lead_time=None`` derives the advance notice from native output timing.
+On Linux, ``latency=None`` selects the ALSA buffer automatically. See tachyaudio's
+``docs/linux-scheduling.md`` for device setup and parameters.
 
-.. code-block:: bash
+On macOS, omit ``device_id`` for the default output or use
+``"BuiltInSpeakerDevice"`` for integrated speakers. Match the current device
+sample rate, typically 48000 Hz. ``latency=None`` preserves the HAL buffer;
+``latency=0.005`` requests 5 ms. This changes a shared device setting, restored
+at close on a best-effort basis if unchanged by another client. Avoid conflicting
+settings across concurrent streams. See tachyaudio's ``docs/native-scheduling.md``.
 
-   python examples/measure_native_audio.py --trials 100 --output native-results.json
+Validation probes:
 
-It reports internal estimates, not sound at the ear; see tachyaudio's
+- ``examples/measure_native_audio.py`` tests silent scheduling under Python load.
+- tachyaudio's ``examples/measure_coreaudio_loopback.py`` measures acoustic
+  intervals using the integrated speakers and microphone, removing constant
+  delay and capture-clock drift.
+
+Neither establishes absolute physical-onset accuracy; see tachyaudio's
 ``docs/electrical-loopback.md`` for external validation.
