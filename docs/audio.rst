@@ -1,14 +1,14 @@
 Audio
 =====
 
-Audio class
+``tachypy.Audio`` plays sound buffers through the ``tachyaudio`` backend. It is
+built so a non-audio experiment gets a dead-simple "play this now" call, while
+timing-critical stimuli can opt into microsecond-precise, device-clock onsets —
+with the same ``play()`` call. TachyPy no longer owns any audio backend itself;
+device handling, buffering and latency live in ``tachyaudio``.
+
+Quick start
 -----------
-
-``tachypy.Audio`` is now a convenience scheduler over ``tachyaudio``. TachyPy no
-longer owns sounddevice or dummy audio backends; low-level device handling,
-streaming, buffering, and latency statistics live in ``tachyaudio``.
-
-Basic playback:
 
 .. code-block:: python
 
@@ -16,176 +16,186 @@ Basic playback:
    from tachypy import Audio
 
    audio = Audio(sample_rate=48000, channels=1)
-   tone = np.zeros(4800, dtype=np.float32)
-   try:
-       audio.prepare()
-       playback = audio.play(tone)
-       playback.result(timeout=2)
-   finally:
-       audio.close()
+   tone = (0.1 * np.sin(2 * np.pi * 440 * np.arange(24000) / 48000)).astype(np.float32)
 
-Scheduling
-----------
+   audio.play(tone)        # play now
+   audio.wait()            # optional: block until it finishes
+   audio.close()           # when the experiment ends
 
-The following describes the default ``timing_mode="software"``. Native mode is
-explicitly opt-in; it never silently falls back to software scheduling.
+- ``play(data)`` plays as soon as the device can; ``play(data, when=t)`` places
+  the onset at absolute monotonic time ``t`` (``time.monotonic()`` clock).
+- ``play()`` returns a ``concurrent.futures.Future``: ``future.result(timeout)``
+  waits and raises any failure, or call ``audio.wait()`` for the latest sound.
+- Mono ``data`` is duplicated to every channel; the array is copied on submit, so
+  you may reuse or edit it immediately.
+- By default ``Audio`` already uses the precise native scheduler when the platform
+  supports it (see `Timing modes`_), so you get good onset precision for free.
+- Call ``close()`` (or ``stop()``) when finished to release the device.
 
-``Audio.play(data, when=...)`` keeps the old TachyPy convenience API. ``when`` is
-an absolute monotonic time in seconds. Internally, TachyPy waits until that time
-and then writes the contiguous float32 frame buffer to ``tachyaudio.OutputStream``.
-
-Call ``prepare()`` before the first timing-sensitive trial to open and warm the
-device. Sequential sounds reuse one stream. Overlapping sounds retain their
-previous behavior by using separate streams; only one idle stream is retained
-after completion. Close each ``Audio`` instance when the experiment finishes.
-The scheduled time is the software submission time, not a measured acoustic
-onset. Device buffering still adds latency.
-
-On Linux this mode goes through tachyaudio's ``miniaudio`` backend and the
-desktop sound server (PulseAudio/PipeWire), so ``device_id`` values are
-sound-server nodes from ``tachyaudio.list_devices()``. Measured by acoustic
-loopback, onsets varied by 3.4 ms (standard deviation) around ``when``. For
-timing-critical stimuli use native mode (below), which bypasses the server.
-
-``play()`` returns a ``concurrent.futures.Future``. Device-open errors are raised
-directly from ``play()`` or ``prepare()``; worker errors are raised by
-``playback.result()`` or ``audio.wait()`` (which waits for the latest request).
-Worker failures also emit a warning and are stored in ``audio.last_error``.
-Failed streams are closed, and the next request opens a fresh stream. Playback
-is not automatically retried because replaying an experimental stimulus after
-its deadline could invalidate the trial.
-
-``stop()`` cancels both scheduled and active sounds, waits for their workers to
-release the streams, and closes the idle stream. Cancelled playback results raise
-``concurrent.futures.CancelledError``. ``Audio`` can be used again after stopping.
-Audio data is copied when submitted so later edits cannot alter a scheduled sound.
-
-The unreleased tachyaudio drain changes are needed to keep macOS streams warm
-after playback. With tachyaudio 0.2.0b2, stream reuse still works but macOS pays
-the device-start cost again after draining.
-
-.. code-block:: python
-
-   import time
-
-   audio = Audio(sample_rate=48000, channels=2, latency=0.01)
-   audio.play(stereo_buffer, when=time.monotonic() + 0.250)
-
-Configuration
--------------
-
-In the default software mode, the following parameters are passed through to
-``tachyaudio.OutputStream`` (native mode: see below; ``latency`` there is the
-ALSA/HAL device buffer and ``block_size`` is rejected):
-
-- ``sample_rate``
-- ``channels``
-- ``block_size``
-- ``device_id``
-- ``latency``
-- ``timeout`` for write/drain operations
-
-The retained ``backend`` argument accepts only ``None``, ``"auto"``, or
-``"tachyaudio"``. Legacy ``"sounddevice"`` and ``"dummy"`` values now raise a
-``ValueError``.
-
-Installation
+Timing modes
 ------------
 
-The base TachyPy install depends on ``tachyaudio>=0.2.0b2``. In most cases, pip
-can resolve this dependency without enabling global pre-release selection:
+``Audio`` picks the best timing automatically:
 
-.. code-block:: bash
+- ``timing_mode="auto"`` (default): the precise ``native`` scheduler when it can be
+  set up, otherwise ``software`` with a one-time warning — so an experiment that is
+  not about audio still gets device-clock precision where possible, without having
+  to ask for it.
+- ``timing_mode="native"``: forces the device-clock scheduler and **raises** if it
+  is unavailable (macOS Core Audio; Linux via direct ALSA with
+  ``device_id="hw:..."``; not on Windows) — a hard error instead of a silent
+  downgrade, for when precise timing is required.
+- ``timing_mode="software"``: forces the OS-mixer path (works everywhere).
 
-   pip install tachypy
+Scheduled onset precision and immediate response time are different measurements.
+Use ``when=`` to align a stimulus to a predetermined instant. On macOS, native
+``play(data)`` instead takes the first available callback after copying the sound;
+its delay varies with callback phase and device latency.
 
-If your resolver does not accept the tachyaudio pre-release automatically, retry
-with:
-
-.. code-block:: bash
-
-   pip install --pre tachypy
-
-For direct development installs:
-
-.. code-block:: bash
-
-   pip install --pre -e .
-
-Testing
--------
-
-Unit tests mock ``tachyaudio.OutputStream``. Hardware/audio-device validation
-should remain a dedicated local or lab-machine test, separate from CI.
-
-Native scheduling (macOS, Linux)
---------------------------------
-
-``timing_mode="native"`` hands each sound to tachyaudio's
-``ScheduledOutputStream``: native code places its first sample on the device
-clock at ``when``, without Python running at onset. Measured by acoustic
-loopback, onset jitter was about 70 µs on Linux (wired interface) and about
-5 µs on macOS (integrated speakers/microphone), against 3.4 ms for the software
-mode; the macOS figure held under Python CPU load. Use native mode for
-timing-critical stimuli. It
-needs a tachyaudio build newer than 0.2.0b2 (install from source until the next
-release) and fails explicitly otherwise.
-
-On Linux it plays through ALSA directly, bypassing PulseAudio/PipeWire, so it
-needs a hardware ``device_id``. Leave it out once: the error lists every output
-(monitor speakers over HDMI/DisplayPort included) with its id and whether it is
-free. On macOS the default output is used unless ``device_id`` is given.
+Precise timing (native mode)
+----------------------------
 
 .. code-block:: python
 
-   import time
-   import numpy as np
-   from tachypy.audio import Audio
+   import time, numpy as np
+   from tachypy import Audio
 
    tone = (0.1 * np.sin(2 * np.pi * 1000 * np.arange(4800) / 48000)).astype(np.float32)
 
-   audio = Audio(sample_rate=48000, device_id="hw:CARD=PCH,DEV=0", timing_mode="native")
+   audio = Audio(sample_rate=48000, channels=1, timing_mode="native", latency=0.005)
    try:
-       audio.prepare()
-       start = time.monotonic() + 0.100
-       first = audio.play(tone, when=start)
-       second = audio.play(tone, when=start + len(tone) / 48000)  # back to back
-       print(first.result().predicted_onset_ns, second.result().predicted_onset_ns)
+       audio.prepare()                              # open + warm the device once, at setup
+       audio.play(tone)                             # now, on the device clock
+       start = time.monotonic() + 0.200
+       a = audio.play(tone, when=start)             # precise future onset
+       b = audio.play(tone, when=start + len(tone) / 48000)  # back to back
+       print(a.result().predicted_onset_ns, b.result().predicted_onset_ns)
    finally:
        audio.close()
 
-``play()`` copies and queues up to 32 non-overlapping sounds. Submit each
-``when`` at least the stream's lead time ahead; late requests raise. Call
-``prepare()`` before computing the first deadline. Mono is duplicated across
-device channels; no resampling is performed and ``block_size`` is rejected.
+- **For a precisely controlled onset, schedule with** ``when=`` computed ahead of
+  the onset (relative to your trial clock), giving the scheduler its full
+  ``lead_time``. ``play(data)`` without ``when`` is the convenient "play now" form:
+  on macOS it uses the next available native callback, without a lead or 5 ms
+  margin. It requires an idle stream; wait for the previous sound first.
+  Linux and older backends retain ``now + lead_time + 5 ms``.
+- Up to 32 sounds queue ahead on one stream, back to back or overlapping.
+  Sounds whose onsets overlap in time are mixed (summed and clamped to [-1, 1]).
+- ``play(data)`` with no ``when`` schedules at the soonest valid onset for you; an
+  explicit ``when`` must be at least ``lead_time`` ahead or the call raises.
+- Call ``prepare()`` once during setup so the device-open cost is off the
+  timing-critical path (``play()`` opens it lazily otherwise).
+- Each Future returns a ``ScheduledTiming`` (device-clock estimates, not acoustic
+  measurements). Cancel with ``stop()``, not ``Future.cancel()``; samples already
+  handed to the device cannot be recalled.
 
-Each Future returns ``ScheduledTiming`` estimates after estimated completion.
-``future.result(timeout=...)`` limits waiting; ``Audio(timeout=...)`` limits
-completion. Cancel with ``stop()``, not ``Future.cancel()``. Samples already
-sent to the device cannot be recalled. Playback failures also set ``last_error``.
+For the fastest onset your machine can sustain without glitches, measure it once at
+setup with tachyaudio's **silent** probe and pass the result:
 
-``minimum_lead_time=None`` derives the advance notice from native output timing.
-On Linux, ``latency=None`` selects the ALSA buffer automatically: with real-time
-priority 2 ms on an onboard/PCI card (about 4.5 ms lead time) and 5 ms on USB.
-Onsets land on the sample grid and are never early, so the placement error is
-0 to 1 sample: up to 20.8 µs at 48 kHz and 5.2 µs at 192 kHz. Use the highest
-``sample_rate`` your device supports when onset precision matters, and schedule
-with some margin beyond the lead time. See tachyaudio's
-``docs/linux-scheduling.md`` for device setup and parameters.
+.. code-block:: python
 
-On macOS, omit ``device_id`` for the default output or use
-``"BuiltInSpeakerDevice"`` for integrated speakers. Match the current device
-sample rate, typically 48000 Hz. ``latency=None`` preserves the HAL buffer;
-``latency=0.005`` requests 5 ms. This changes a shared device setting, restored
-at close on a best-effort basis if unchanged by another client. Avoid conflicting
-settings across concurrent streams. See tachyaudio's ``docs/native-scheduling.md``.
+   import tachyaudio as ta
+   s = ta.fastest_safe_settings(device_id="BuiltInSpeakerDevice")  # ~1 s, silent, under CPU load
+   audio = Audio(timing_mode="native", latency=s.latency, minimum_lead_time=s.minimum_lead_time)
 
-Validation probes:
+It sweeps buffers from the hardware minimum up and returns the fastest that ran a
+dense burst of zero-filled sounds with no dropped/late onset (nothing audible, no
+microphone). Re-run it per machine — smaller buffers have thinner timing margin on
+slower or busier hardware. The ``tachyaudio-audio-report`` command does the full
+diagnostic (latencies, jitter, lead search).
 
-- ``examples/measure_native_audio.py`` tests silent scheduling under Python load.
-- tachyaudio's ``examples/measure_coreaudio_loopback.py`` measures acoustic
-  intervals using the integrated speakers and microphone, removing constant
-  delay and capture-clock drift.
+Platform notes (native):
 
-Neither establishes absolute physical-onset accuracy; see tachyaudio's
-``docs/electrical-loopback.md`` for external validation.
+- **macOS** — Core Audio. ``device_id=None`` uses the default output, or pass
+  ``"BuiltInSpeakerDevice"``. ``latency=None`` requests a 1 ms buffer in native mode;
+  ``latency=0.005`` requests a 5 ms buffer (a shared device setting, restored on
+  close on a best-effort basis). Smaller explicit buffers are accepted when supported by the hardware. Onset jitter is
+  ~5 µs and the advance notice (``lead_time``) is ~21 ms at a 1 ms buffer; the
+  fixed hardware presentation latency (~16 ms on the tested Mac) is physical and
+  cannot be reduced. See tachyaudio ``docs/native-scheduling.md``.
+- **Linux** — direct ALSA, bypassing PulseAudio/PipeWire, so it needs a hardware
+  ``device_id="hw:CARD=...,DEV=..."``. Omit it once and the raised error lists
+  every output (HDMI/DisplayPort monitor speakers included) with its id and
+  whether it is free. ``latency=None`` auto-selects the buffer (real-time
+  priority: ~2 ms onboard/PCI, 5 ms USB). Onsets land on the sample grid and are
+  never early, so placement error is 0–1 sample: 20.8 µs at 48 kHz, 5.2 µs at
+  192 kHz — use the highest ``sample_rate`` your device supports when precision
+  matters. See tachyaudio ``docs/linux-scheduling.md``.
+- **Windows** — native scheduling is unavailable; software mode works.
+
+Native scheduling needs a ``tachyaudio`` build newer than 0.2.0b2 (install from
+source until the next release); it fails explicitly on an older build.
+
+Reference
+---------
+
+================================  ============================================================
+Call                              Behavior
+================================  ============================================================
+``play(data)``                    Play now; returns a ``Future``.
+``play(data, when=t)``            Play with the onset at monotonic time ``t``.
+``wait(timeout=None)``            Wait for the most recent sound; re-raises its failure.
+``prepare()``                     Open and warm the device ahead of the first sound.
+``stop()``                        Cancel all pending/active sounds; the instance stays usable.
+``close()``                       Stop and release the device.
+``is_playing``                    True while any sound is pending or playing.
+``last_error``                    The most recent worker failure, or ``None``.
+================================  ============================================================
+
+``Audio(...)`` parameters:
+
+- ``sample_rate``, ``channels`` — of your buffers; no resampling is done.
+- ``device_id`` — output device (see each mode's note); ``None`` is the default.
+- ``latency`` — software: the ``OutputStream`` buffer in seconds; native: the
+  device buffer in seconds (``None`` requests 1 ms on macOS; Linux chooses its buffer).
+- ``timing_mode`` — ``"auto"`` (default), ``"native"``, or ``"software"``.
+- ``minimum_lead_time`` — native only; override the advance notice (``None``
+  derives it from the device's measured output delay).
+- ``timeout`` — software: write/drain timeout; native: total completion timeout,
+  including the wait until the scheduled onset.
+- ``block_size`` — software only; rejected in native mode.
+
+Errors and lifecycle
+--------------------
+
+Device-open errors raise from ``play()`` or ``prepare()``. Playback-worker errors
+are raised by ``future.result()`` or ``audio.wait()``, also emit a warning, and
+are stored in ``audio.last_error``; the failed stream is closed and the next
+``play()`` opens a fresh one. Playback is never auto-retried — replaying a
+stimulus after its deadline could invalidate a trial. ``stop()`` cancels
+everything (those Futures raise ``concurrent.futures.CancelledError``) and the
+``Audio`` instance can be reused afterwards.
+
+Install
+-------
+
+.. code-block:: bash
+
+   pip install tachypy          # add --pre if the tachyaudio pre-release is rejected
+
+Caveats and validation
+----------------------
+
+Reported times are a software submission time (software mode) or device-clock
+estimates (native mode), **not** an externally measured acoustic onset — device
+buffering and the fixed hardware presentation latency still apply. Validate with
+``examples/measure_native_audio.py`` (silent scheduling under Python load) and
+tachyaudio's ``examples/measure_coreaudio_loopback.py`` (acoustic intervals
+through the integrated speakers/microphone, constant delay and clock drift
+removed). For absolute onset accuracy use an external reference; see tachyaudio's
+``docs/electrical-loopback.md``.
+
+To tune advance notice on your machine, run ``tachyaudio-audio-report --tune-only``.
+It compares buffers and leads at idle and under CPU load, then validates the
+shortest passing tested setting with fresh trials. Apply the reported ``latency``
+and ``minimum_lead_time`` to ``Audio(timing_mode="native", ...)``. This is a
+workload-specific result, not a safety guarantee; repeat with your actual stimuli.
+``prepare()`` warms the stream; the lead controls earliest onset, not sound spacing.
+
+For the shortest immediate response, run
+``tachyaudio-audio-report --immediate-only --json immediate.json`` and apply its
+validated ``latency``. Use ``--stimulus-ms 100`` to test longer sounds. The report
+includes the hardware minimum, idle/loaded p99 delay and independent validation.
+Call ``prepare()`` before the trial; first-play device startup is additional.
+Immediate timing results expose ``submission_to_onset_seconds``;
+``predicted_error_seconds`` applies only to explicit deadlines.

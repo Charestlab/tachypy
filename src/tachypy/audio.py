@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 import threading
 import time
 import warnings
@@ -19,6 +20,9 @@ except Exception as err:  # pragma: no cover - exercised only in broken installs
 else:
     _TACHYAUDIO_IMPORT_ERROR = None
 
+#: Fallback reasons already reported in this process.
+_AUTO_FALLBACK_WARNED = set()
+
 
 class Audio:
     """Schedule playback through :mod:`tachyaudio` while preserving TachyPy's API."""
@@ -33,7 +37,7 @@ class Audio:
         device_id=None,
         latency=None,
         timeout=None,
-        timing_mode="software",
+        timing_mode="auto",
         minimum_lead_time=None,
     ):
         """Initialize audio playback state.
@@ -52,19 +56,24 @@ class Audio:
             Passed through to ``tachyaudio.OutputStream``. In native
             mode ``latency`` is the device buffer in seconds, passed to
             ``tachyaudio.ScheduledOutputStream``; leave it ``None`` to let
-            tachyaudio choose it on Linux or preserve the shared HAL buffer
-            on macOS. An explicit macOS latency changes the shared device
+            tachyaudio choose it on Linux or request a 1 ms buffer
+            on macOS. Use a larger explicit value if your workload needs it. An explicit macOS latency changes the shared device
             buffer until close; avoid conflicting settings in concurrent streams.
         timeout : float | None
             Software write/drain timeout; native mode total completion timeout,
             including the wait until the scheduled onset.
         timing_mode : str
-            ``"software"`` (default) or experimental device-clock ``"native"``
-            (macOS Core Audio, or Linux via direct ALSA with an explicit
-            ``device_id="hw:CARD,DEVICE"``; Windows native scheduling is not
-            yet available).
+            ``"auto"`` (default) uses the precise device-clock ``"native"``
+            scheduler when it can be set up, otherwise falls back to
+            ``"software"`` with a warning (so a non-audio experiment still gets
+            the best available precision without knowing to ask). ``"native"``
+            forces the device-clock scheduler and raises if it is unavailable
+            (macOS Core Audio; Linux via direct ALSA with an explicit
+            ``device_id="hw:CARD,DEVICE"``; not on Windows). ``"software"``
+            forces the OS-mixer path (works everywhere, lower precision).
         minimum_lead_time : float | None
-            Minimum advance notice in seconds for native scheduling. ``None``
+            Minimum advance notice for explicit native deadlines; ignored by macOS
+            immediate playback. ``None``
             (default) lets tachyaudio derive it from the device's measured
             output delay on Linux and macOS.
         """
@@ -91,12 +100,14 @@ class Audio:
         self.device_id = device_id
         self.latency = latency
         self.timeout = timeout
-        if timing_mode not in ("software", "native"):
-            raise ValueError("timing_mode must be 'software' or 'native'")
+        if timing_mode not in ("auto", "software", "native"):
+            raise ValueError("timing_mode must be 'auto', 'software', or 'native'")
         if minimum_lead_time is not None and (
             not math.isfinite(minimum_lead_time) or minimum_lead_time < 0
         ):
             raise ValueError("minimum_lead_time must be finite and nonnegative")
+        if timing_mode == "auto":
+            timing_mode = self._resolve_auto_mode(device_id)
         if timing_mode == "native" and block_size is not None:
             raise ValueError("native timing chooses its own period; omit block_size")
         self.timing_mode = timing_mode
@@ -112,6 +123,33 @@ class Audio:
         self.last_error = None
         self._stopping = False
 
+    @staticmethod
+    def _resolve_auto_mode(device_id):
+        """Pick 'native' when the device-clock scheduler can be set up, else 'software'.
+
+        Falls back to software only for structural reasons (no native build,
+        Windows, or Linux without a hardware device), with a warning that tells
+        the user how to get native precision. Never hides a real native failure.
+        """
+        if getattr(tachyaudio, "ScheduledOutputStream", None) is None:
+            reason = "this tachyaudio build has no native scheduler"
+        elif sys.platform.startswith("win"):
+            reason = "native scheduling is not available on Windows"
+        elif sys.platform.startswith("linux") and not str(device_id or "").startswith("hw:"):
+            reason = ("native scheduling on Linux needs a hardware device, e.g. "
+                      "device_id='hw:CARD=...,DEV=...' (it bypasses PulseAudio/PipeWire)")
+        else:
+            return "native"
+        if reason not in _AUTO_FALLBACK_WARNED:
+            _AUTO_FALLBACK_WARNED.add(reason)
+            warnings.warn(
+                f"Audio is using software timing: {reason}. Pass timing_mode='software' "
+                "to silence this, or set up native scheduling for ~microsecond onset precision.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+        return "software"
+
     def _open_stream(self):
         if self.timing_mode == "native":
             factory = getattr(tachyaudio, "ScheduledOutputStream", None)
@@ -120,6 +158,8 @@ class Audio:
             options = {}
             if self.latency is not None:
                 options["latency"] = self.latency
+            elif sys.platform == "darwin":
+                options["latency"] = 0.001
             if self.minimum_lead_time is not None:
                 options["minimum_lead_time"] = self.minimum_lead_time
             return factory(
@@ -157,34 +197,43 @@ class Audio:
                     raise
                 self._stream = stream
 
-    def play(self, data, when=0):
-        """Play a NumPy buffer, optionally scheduled at an absolute monotonic time.
+    def play(self, data, when=None):
+        """Play a NumPy sound buffer, now or at an absolute monotonic time.
 
-        ``when`` is expressed in seconds from ``time.monotonic_ns() / 1e9``.
-        Returns a ``Future``; call ``result()`` to wait and surface playback
-        failures. Device opening happens synchronously unless ``prepare()``
-        already supplied an idle stream. Concurrent sounds use separate streams.
+        ``when=None`` (the default) plays as soon as the device can — the simple
+        "play this now" case. Pass ``when`` (seconds in the ``time.monotonic()``
+        clock) to place the onset at a precise future time.
 
-        Native mode instead submits immediately to the device-clock scheduler
-        and requires an explicit future deadline. Several sounds can be queued
-        ahead on one stream (up to 32 on Linux and macOS), back to
-        back if desired; sounds overlapping in time are rejected. Its Future
-        returns ScheduledTiming estimates, not physical measurements. Use
-        stop(), not Future.cancel(), to cancel submitted requests.
+        Returns a ``Future``; call its ``.result()`` to wait for completion and
+        surface any playback failure. The device opens on the first ``play()``
+        unless ``prepare()`` already warmed it.
+
+        In ``"native"`` mode both forms use the device-clock scheduler for the
+        ``when=None`` uses the next native callback on macOS (idle stream only);
+        Linux and older backends use a guarded future deadline. An explicit
+        ``when`` must be at least ``lead_time`` ahead. Up to 32 sounds can be queued ahead on one stream, back to back
+        or overlapping; sounds that overlap in time are mixed (summed and
+        clamped to [-1, 1]). The Future
+        returns ``ScheduledTiming`` estimates. Use ``stop()`` to cancel, not
+        ``Future.cancel()``. In ``"software"`` mode concurrent sounds use
+        separate streams and the time is a software submission time.
         """
         buffer = self._prepare_buffer(data)
-        when = float(when)
-        if not math.isfinite(when):
-            raise ValueError("when must be finite")
+        if when is not None:
+            when = float(when)
+            if not math.isfinite(when):
+                raise ValueError("when must be finite")
+        asap = when is None or when == 0
         if self.timing_mode == "native":
-            if when <= 0:
-                raise ValueError("native timing requires an explicit future monotonic 'when'")
-            return self._play_native(buffer, when)
+            return self._play_native(buffer, None if asap else when)
         current_time = time.monotonic_ns()
-        delay = int((float(when) * 1e9) - current_time)
-        if delay < 0 and when != 0 and self.timing_mode == "software":
-            warnings.warn("'when' time is in the past; playing immediately.", RuntimeWarning, stacklevel=2)
-        target_ns = round(when * 1e9) if self.timing_mode == "native" else current_time + max(delay, 0)
+        if asap:
+            target_ns = current_time
+        else:
+            delay = int(when * 1e9 - current_time)
+            if delay < 0:
+                warnings.warn("'when' time is in the past; playing immediately.", RuntimeWarning, stacklevel=2)
+            target_ns = current_time + max(delay, 0)
         future = Future()
         cancelled = threading.Event()
         with self._lock:
@@ -214,8 +263,15 @@ class Audio:
                 raise
         return future
 
+    #: Submission margin for Linux and legacy deadline-based playback.
+    _NATIVE_ASAP_SAFETY = 0.005
+
     def _play_native(self, buffer, when):
-        """Queue one stimulus on the shared native stream and track it."""
+        """Queue one stimulus on the shared native stream and track it.
+
+        On macOS, ``when=None`` uses the next available native callback.
+        Older backends and Linux retain deadline-based immediate playback.
+        """
         future = Future()
         cancelled = threading.Event()
         with self._lock:
@@ -231,7 +287,14 @@ class Audio:
                         stream.close()
                         raise
                     self._stream = stream
-                stimulus = stream.schedule(buffer, when=when)
+                if when is None and sys.platform == "darwin" and callable(
+                    getattr(stream, "schedule_asap", None)
+                ):
+                    stimulus = stream.schedule_asap(buffer)
+                else:
+                    if when is None:
+                        when = time.monotonic() + stream.lead_time + self._NATIVE_ASAP_SAFETY
+                    stimulus = stream.schedule(buffer, when=when)
             except BaseException as error:
                 self.last_error = error
                 if stream is not None and not self._active:

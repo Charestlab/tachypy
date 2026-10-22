@@ -38,3 +38,20 @@ def test_coreaudio_queues_32_futures_on_one_prepared_stream():
         assert audio._stream is not stream
     finally:
         audio.close()
+
+
+def test_coreaudio_play_now_bypasses_explicit_deadline_lead():
+    audio = Audio(sample_rate=48000, channels=1, timing_mode='native',
+                  device_id='BuiltInSpeakerDevice', latency=.001,
+                  minimum_lead_time=5.0)
+    try:
+        audio.prepare()
+        stream = audio._stream
+        for _ in range(2):
+            result = audio.play(np.zeros(48, dtype=np.float32)).result(timeout=2)
+            assert result.immediate
+            assert result.rendered_frames == 48
+            assert result.submission_to_onset_seconds > 0
+            assert audio._stream is stream
+    finally:
+        audio.close()

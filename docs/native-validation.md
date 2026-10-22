@@ -9,7 +9,7 @@ Merge/release the tachyaudio API before advertising a pip-installable native mod
 ## Automated checks
 
 31 focused audio tests passed (existing lifecycle tests and new native tests).
-New coverage: synchronous early submission, data copying, reuse, overlap rejection,
+New coverage: synchronous early submission, data copying, reuse, overlap mixing,
 missing API, invalid deadlines/settings, cancellation, timeout and error propagation.
 Ruff and `git diff --check` passed. These are audio-focused tests, not a claim that
 the complete visual/experiment test suite or all Python versions were exercised.
