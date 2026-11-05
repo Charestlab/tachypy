@@ -118,3 +118,36 @@ def test_windowed_refresh_request_explains_glfw_limitation(glfw_backend, monkeyp
     monkeypatch.setattr(warnings_module, "_warned", set())
     Screen(fullscreen=False, desired_refresh_rate=120, warmup_frames=0)
     assert "GLFW ignores desired_refresh_rate in windowed mode" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failure,message", [
+    ("init", "initialize GLFW"), ("monitors", "No monitors"),
+    ("mode", "video mode"), ("window", "create GLFW window"),
+])
+def test_glfw_setup_failures_report_errors_and_release_resources(glfw_backend, failure, message):
+    glfw = glfw_backend
+    if failure == "init":
+        glfw.init.return_value = False
+    elif failure == "monitors":
+        glfw.get_monitors.return_value = []
+    elif failure == "mode":
+        glfw.get_video_mode.return_value = None
+    else:
+        glfw.create_window.return_value = None
+    with pytest.raises(RuntimeError, match=message):
+        Screen(warmup_frames=0)
+    if failure != "init":
+        glfw.terminate.assert_called_once()
+
+
+def test_missing_glfw_has_install_guidance(monkeypatch):
+    monkeypatch.setitem(sys.modules, "glfw", None)
+    with pytest.raises(RuntimeError, match="glfw.*not installed"):
+        Screen(warmup_frames=0)
+
+
+def test_lost_monitor_mode_resets_refresh_estimates(glfw_backend):
+    glfw_backend.get_video_mode.side_effect = [glfw_backend.get_video_mode.return_value, None]
+    screen = Screen(desired_refresh_rate=120, warmup_frames=0)
+    assert screen._mode_refresh_rate is None
+    assert screen._max_mode_refresh_rate is None

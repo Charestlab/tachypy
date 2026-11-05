@@ -89,4 +89,4 @@ jobs:
         run: python -c "import tachypy; from tachypy import ResponseHandler; print(ResponseHandler)"
 
       - name: Run tests with coverage
-        run: pytest --cov=tachypy --cov-report=term-missing --cov-fail-under=80
+        run: pytest --cov=tachypy --cov-report=term-missing --cov-fail-under=90

@@ -24,6 +24,7 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/CharestLab/tachypy',
     classifiers=[
+        'Development Status :: 5 - Production/Stable',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',

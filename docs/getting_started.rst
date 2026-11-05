@@ -11,8 +11,8 @@ Install TachyPy
    pip install tachypy
 
 The base install includes GLFW, PyOpenGL, FreeType, HarfBuzz, pyserial, and
-TachyAudio. Pygame is no longer supported. TachyAudio is currently beta;
-TachyPy requires ``tachyaudio>=0.2.0b4``, which includes Windows native
+TachyAudio. Pygame is no longer supported.
+TachyPy requires ``tachyaudio>=0.2.0b4,<2``, which includes Windows native
 scheduling. Compatible platform wheels install automatically. Native timing is the default on all platforms;
 Linux requires an explicit ALSA hardware device.
 

@@ -149,3 +149,64 @@ def test_texture_nonfinite_conversion_is_deterministic_without_numpy_warnings(mo
     assert caught == []
     assert converted.tolist() == [[[0, 255, 0]]]
     assert "contains NaN or infinite values" in capsys.readouterr().err
+
+
+def test_texture_upload_update_and_delete_lifecycle(monkeypatch):
+    from unittest.mock import Mock
+
+    patch_gl(monkeypatch)
+    upload, update, delete = Mock(), Mock(), Mock()
+    monkeypatch.setattr(textures_module, "glTexImage2D", upload)
+    monkeypatch.setattr(textures_module, "glTexSubImage2D", update)
+    monkeypatch.setattr(textures_module, "glDeleteTextures", delete)
+    pixels = np.arange(18, dtype=np.uint8).reshape(2, 3, 3)
+    texture = Texture(pixels, rect=[[10, 20], [40, 50]])
+    assert upload.call_args.args[3:5] == (3, 2)
+    np.testing.assert_array_equal(upload.call_args.args[-1], pixels)
+    replacement = np.full_like(pixels, 123)
+    texture.update(replacement)
+    assert update.call_args.args[4:6] == (3, 2)
+    np.testing.assert_array_equal(update.call_args.args[-1], replacement)
+    texture.delete()
+    texture.delete()
+    delete.assert_called_once_with([1])
+    assert texture.texture_id == 0
+
+
+@pytest.mark.parametrize("rect", [[0, 1, 2], [0, 0, 0, 2], [0, 2, 3, 1]])
+def test_texture_rejects_invalid_drawing_rectangles(rect):
+    with pytest.raises(ValueError):
+        Texture._normalize_rect(rect)
+
+
+def test_texture_draw_preserves_orientation_and_resets_state(monkeypatch):
+    from unittest.mock import Mock
+
+    patch_gl(monkeypatch)
+    calls = Mock()
+    for name in ("glVertex2f", "glTexCoord2f", "glBindTexture", "glEnable", "glDisable", "glLoadIdentity"):
+        monkeypatch.setattr(textures_module, name, getattr(calls, name))
+    texture = Texture(np.zeros((2, 3, 3), dtype=np.uint8))
+    texture.move_by(10, 20)
+    assert texture.get_bounds() == (10, 20, 13, 22)
+    calls.reset_mock()
+    texture.draw(a_rect=[1, 2, 7, 10])
+    assert [c.args for c in calls.glVertex2f.call_args_list] == [(1, 2), (7, 2), (7, 10), (1, 10)]
+    assert [c.args for c in calls.glTexCoord2f.call_args_list] == [(0, 0), (1, 0), (1, 1), (0, 1)]
+    assert calls.glBindTexture.call_args.args == (textures_module.GL_TEXTURE_2D, 0)
+    calls.glDisable.assert_called_once_with(textures_module.GL_TEXTURE_2D)
+    calls.glLoadIdentity.assert_called_once()
+    texture.draw(rect=[2, 3, 8, 11])
+    assert texture.get_bounds() == (2, 3, 8, 11)
+    with pytest.raises(ValueError, match="either"):
+        texture.draw(rect=[0, 0, 1, 1], a_rect=[0, 0, 1, 1])
+
+
+def test_texture_nonnumeric_conversion_and_all_nonfinite_pixels(monkeypatch, capsys):
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    result = Texture._validate_image(np.array([[["12", "34", "56"]]]))
+    assert result.tolist() == [[[12, 34, 56]]]
+    assert "may not convert as intended" in capsys.readouterr().err
+    monkeypatch.setattr(warnings_module, "_warned", set())
+    result = Texture._validate_image(np.full((1, 1, 3), np.nan))
+    assert result.tolist() == [[[0, 0, 0]]]

@@ -245,9 +245,9 @@ class QuestObject:
         This was converted from the Psychtoolbox's QuestP function.
         """
         if x < self.x2[0]:
-            return self.x2[0]
+            return self.p2[0]
         if x > self.x2[-1]:
-            return self.x2[-1]
+            return self.p2[-1]
         return np.interp(x,self.x2,self.p2)
     
     def pdf_at(self,t):
@@ -255,7 +255,7 @@ class QuestObject:
         
         This was converted from the Psychtoolbox's QuestPdf function.
         """
-        i=int(alt_round((t-self.tGuess)/self.grain))+1+self.dim/2 # change for the other round
+        i=int(alt_round((t-self.tGuess)/self.grain))+1+self.dim//2
         i=min(len(self.pdf),max(1,i))-1
         p=self.pdf[i]
         return p
@@ -285,15 +285,16 @@ class QuestObject:
         if not np.isfinite(quantileOrder) or not 0 <= quantileOrder <= 1:
             raise ValueError("quantileOrder must be a number between 0 and 1")
         p = np.cumsum(self.pdf)
-        if len(getinf(p[-1])[0]):
+        if not np.all(np.isfinite(p)):
             raise RuntimeError('pdf is not finite')
         if p[-1]==0:
             raise RuntimeError('pdf is all zero')
         #m1p = np.concatenate(([-1],p))
         #index = np.nonzero( m1p[1:]-m1p[:-1] )[0]
         index = np.where(np.diff(np.concatenate(([-1], p))) > 0)[0] # more similar to Psychtoolbox than the previous
-        if len(index) < 2:
-            raise RuntimeError('pdf has only %g nonzero point(s)'%len(index))
+        nonzero = np.count_nonzero(self.pdf)
+        if nonzero < 2:
+            raise RuntimeError('pdf has only %g nonzero point(s)'%nonzero)
         ires = np.interp([quantileOrder*p[-1]],p[index],self.x[index])[0]
         return self.tGuess+ires
 
@@ -413,15 +414,26 @@ class QuestObject:
         from scratch from the historical record.
 
         This was converted from the Psychtoolbox's QuestUpdate function."""
-        # Normalize bool-like responses to integer indices for consistent NumPy behavior.
-        response = int(response)
-        if response < 0 or response > self.s2.shape[0]:
-            raise RuntimeError('response %g out of range 0 to %d'%(response,self.s2.shape[0]))
+        # Normalize bool-like responses to integer indices for consistent NumPy behavior,
+        # but reject truncated non-binary numeric inputs before coercion.
+        response_value = response
+        if isinstance(response, (bool, np.bool_)):
+            response = int(response)
+        else:
+            try:
+                response = float(response)
+            except (TypeError, ValueError) as err:
+                raise RuntimeError('response %s out of range 0 to %d'%(response_value,self.s2.shape[0]-1)) from err
+            if not np.isfinite(response) or response not in (0.0, 1.0):
+                raise RuntimeError('response %s out of range 0 to %d'%(response_value,self.s2.shape[0]-1))
+            response = int(response)
+        if response < 0 or response >= self.s2.shape[0]:
+            raise RuntimeError('response %s out of range 0 to %d'%(response_value,self.s2.shape[0]-1))
         if self.updatePdf:
             inten = max(-1e10,min(1e10,intensity)) # make intensity finite
             ii = len(self.pdf) + self.i-alt_round((inten-self.tGuess)/self.grain)-1
             #ii = self.pdf.shape[1] + self.i-alt_round((inten-self.tGuess)/self.grain)-1 # change round but otherwise more like Psychtoolbox
-            if ii[0]<0 or ii[-1] > self.s2.shape[1]:
+            if ii[0]<0 or ii[-1] >= self.s2.shape[1]:
                 if self.warnPdf:
                     low=(1-len(self.pdf)-self.i[0])*self.grain+self.tGuess # same comment as above
                     high=(self.s2.shape[1]-len(self.pdf)-self.i[-1])*self.grain+self.tGuess # suddenly more like Psychtoolbox
