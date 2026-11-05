@@ -68,7 +68,7 @@ def test_recompute_replays_trials_and_normalizes_long_runs(quest):
     assert len(stream.getvalue().splitlines()) == 2
 
 
-@pytest.mark.parametrize("response", [-1, 2, 3])
+@pytest.mark.parametrize("response", [-1, 2, 3, 0.9, "0.9"])
 def test_invalid_response_rejected_without_mutating_posterior(quest, response):
     before = quest.pdf.copy()
     with pytest.raises(RuntimeError, match="response.*out of range"):

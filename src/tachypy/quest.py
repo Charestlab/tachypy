@@ -414,10 +414,21 @@ class QuestObject:
         from scratch from the historical record.
 
         This was converted from the Psychtoolbox's QuestUpdate function."""
-        # Normalize bool-like responses to integer indices for consistent NumPy behavior.
-        response = int(response)
+        # Normalize bool-like responses to integer indices for consistent NumPy behavior,
+        # but reject truncated non-binary numeric inputs before coercion.
+        response_value = response
+        if isinstance(response, (bool, np.bool_)):
+            response = int(response)
+        else:
+            try:
+                response = float(response)
+            except (TypeError, ValueError) as err:
+                raise RuntimeError('response %s out of range 0 to %d'%(response_value,self.s2.shape[0]-1)) from err
+            if not np.isfinite(response) or response not in (0.0, 1.0):
+                raise RuntimeError('response %s out of range 0 to %d'%(response_value,self.s2.shape[0]-1))
+            response = int(response)
         if response < 0 or response >= self.s2.shape[0]:
-            raise RuntimeError('response %g out of range 0 to %d'%(response,self.s2.shape[0]-1))
+            raise RuntimeError('response %s out of range 0 to %d'%(response_value,self.s2.shape[0]-1))
         if self.updatePdf:
             inten = max(-1e10,min(1e10,intensity)) # make intensity finite
             ii = len(self.pdf) + self.i-alt_round((inten-self.tGuess)/self.grain)-1
