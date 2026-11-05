@@ -13,7 +13,12 @@ What is covered
 - Draggable object movement and boundary clamping.
 - GLFW drag/input behavior.
 - Psychophysics helper invariants (shape/range and edge cases).
-- Text object line processing edge cases.
+- QUEST posterior updates, probability queries, quantiles, and simulated threshold recovery.
+- Shape geometry, hit testing, and drawing commands.
+- Texture conversion, upload/update, orientation, and resource cleanup.
+- GLFW setup failures, HiDPI resizing, projection, timing, and display cleanup.
+- Text shaping, glyph caching/upload, alignment, wrapping, and resource cleanup.
+- Pressure-feedback readiness, exit handling, timeouts, and source integration.
 
 Run tests
 ---------
@@ -28,13 +33,21 @@ From the repository root:
 Coverage
 --------
 
-Coverage runs by default through pytest configuration:
+Run statement and branch coverage explicitly:
 
 .. code-block:: bash
 
-   pytest
+   pytest --cov=tachypy --cov-report=term-missing --cov-fail-under=90
 
-The suite currently enforces a minimum line coverage threshold in CI.
+CI enforces a minimum combined statement/branch coverage of 90%. Core runtime
+modules, including ``quest``, ``screen``, ``text``, ``textures``, and ``shapes``,
+are included. Only example/demo entry points are excluded.
+
+Graphics tests replace the GLFW/OpenGL boundary and verify the geometry, pixel
+data, state transitions, and resource calls sent to it. Font-loading and shaping
+also have tests using FreeType/HarfBuzz. Passing these tests does not establish
+correct GPU output, VSync behavior, or physical audio/visual onset timing;
+validate those separately on the experiment hardware.
 
 Add new tests
 -------------
