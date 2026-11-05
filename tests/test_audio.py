@@ -40,7 +40,7 @@ def test_play_expands_mono_data_to_requested_channels(monkeypatch):
     monkeypatch.setattr("tachypy.audio.threading.Thread", FakeThread)
     monkeypatch.setattr("tachypy.audio.time.monotonic_ns", lambda: 2_000_000_000)
 
-    audio = Audio(sample_rate=44_100, channels=2)
+    audio = Audio(sample_rate=44_100, channels=2, timing_mode="software")
     mono = np.array([0.1, -0.1, 0.2], dtype=np.float64)
 
     audio.play(mono, when=2.0)

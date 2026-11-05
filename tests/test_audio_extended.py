@@ -63,7 +63,7 @@ def test_open_failure_reaches_caller(monkeypatch):
         raise RuntimeError("device unavailable")
 
     monkeypatch.setattr(audio_module, "tachyaudio", type("Backend", (), {"OutputStream": fail}))
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     with pytest.raises(RuntimeError, match="device unavailable"):
         audio.play(np.zeros(4))
     assert isinstance(audio.last_error, RuntimeError)
@@ -72,7 +72,7 @@ def test_open_failure_reaches_caller(monkeypatch):
 
 
 def test_prefills_then_streams_large_clip_and_reuses(streams):
-    audio = Audio(sample_rate=48000, timeout=1)
+    audio = Audio(sample_rate=48000, timeout=1, timing_mode="software")
     data = np.arange(20, dtype=np.float32)
     try:
         audio.play(data).result(timeout=1)
@@ -88,7 +88,7 @@ def test_prefills_then_streams_large_clip_and_reuses(streams):
 
 
 def test_prepare_warms_and_reuses_stream(streams):
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     try:
         audio.prepare()
         audio.prepare()
@@ -101,7 +101,7 @@ def test_prepare_warms_and_reuses_stream(streams):
 
 
 def test_overlapping_sounds_get_independent_streams(streams):
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     try:
         audio.prepare()
         streams[0].allow_drain.clear()
@@ -122,7 +122,7 @@ def test_overlapping_sounds_get_independent_streams(streams):
 
 
 def test_worker_error_is_observable_and_next_play_recovers(streams):
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     try:
         audio.prepare()
         streams[0].write_error = RuntimeError("write failed")
@@ -142,7 +142,7 @@ def test_worker_error_is_observable_and_next_play_recovers(streams):
 
 
 def test_stop_cancels_scheduled_sound_without_playing(streams):
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     future = audio.play(np.zeros(4), when=time.monotonic() + 60)
     audio.stop()
     with pytest.raises(CancelledError):
@@ -154,7 +154,7 @@ def test_stop_cancels_scheduled_sound_without_playing(streams):
 
 
 def test_stop_interrupts_drain_and_can_reopen(streams):
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     audio.prepare()
     streams[0].allow_drain.clear()
     future = audio.play(np.zeros(4))
@@ -167,7 +167,7 @@ def test_stop_interrupts_drain_and_can_reopen(streams):
 
 
 def test_drain_timeout_surfaces_and_closes_stream(streams):
-    audio = Audio(timeout=0.01)
+    audio = Audio(timeout=0.01, timing_mode="software")
     audio.prepare()
     streams[0].allow_drain.clear()
     with pytest.warns(RuntimeWarning, match="Audio playback failed"):
@@ -180,7 +180,7 @@ def test_drain_timeout_surfaces_and_closes_stream(streams):
 
 
 def test_warns_and_plays_immediately_for_past_when_in_software_mode(streams):
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     try:
         when = time.monotonic() - 0.1
         with pytest.warns(RuntimeWarning, match="'when' time is in the past; playing immediately"):
@@ -193,7 +193,7 @@ def test_warns_and_plays_immediately_for_past_when_in_software_mode(streams):
 
 
 def test_play_owns_buffer_during_scheduled_playback(streams):
-    audio = Audio()
+    audio = Audio(timing_mode="software")
     data = np.ones(4, dtype=np.float32)
     try:
         future = audio.play(data, when=time.monotonic() + 0.02)
@@ -207,7 +207,7 @@ def test_play_owns_buffer_during_scheduled_playback(streams):
 @pytest.mark.parametrize("data", [[], np.zeros((2, 2, 2)), np.zeros(0)])
 def test_invalid_buffers_rejected(streams, data):
     with pytest.raises(ValueError):
-        Audio().play(data)
+        Audio(timing_mode="software").play(data)
     assert not streams
 
 

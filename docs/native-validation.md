@@ -1,8 +1,11 @@
 # Native audio integration validation — 2026-10-15
 
 Development branch: `dev_0.2.3`, based on main `7d8b53f`.
-Requires the companion tachyaudio `dev_0.2.0b3` branch.
-No release or minimum dependency bump is included: native timing is opt-in and
+Historical validation record (before the cross-platform native default).
+Current integration requires tachyaudio >=0.2.0b4; see `audio.rst`.
+
+At the time, this required the companion tachyaudio `dev_0.2.0b3` branch.
+At the time, no release or minimum dependency bump was included: native timing is opt-in and
 old tachyaudio installations fail explicitly when native mode is selected.
 Merge/release the tachyaudio API before advertising a pip-installable native mode.
 
@@ -42,4 +45,4 @@ waveform fidelity. Future completion is estimated device completion.
 These residuals are sample-grid calculations, not independently measured timing
 accuracy. No electrical loopback, acoustic measurements, or paired PsychPortAudio
 measurements have been performed. No Windows/Linux scheduled path was tested or
-implemented. See the companion tachyaudio `docs/electrical-loopback.md` protocol.
+implemented in this historical validation. See the companion tachyaudio `docs/electrical-loopback.md` protocol.
