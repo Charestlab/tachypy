@@ -37,7 +37,7 @@ class Audio:
         device_id=None,
         latency=None,
         timeout=None,
-        timing_mode="auto",
+        timing_mode="native",
         minimum_lead_time=None,
     ):
         """Initialize audio playback state.
@@ -59,18 +59,17 @@ class Audio:
             tachyaudio choose it on Linux or request a 1 ms buffer
             on macOS. Use a larger explicit value if your workload needs it. An explicit macOS latency changes the shared device
             buffer until close; avoid conflicting settings in concurrent streams.
+            Windows uses its shared-engine default period; omit latency there.
         timeout : float | None
             Software write/drain timeout; native mode total completion timeout,
             including the wait until the scheduled onset.
         timing_mode : str
-            ``"auto"`` (default) uses the precise device-clock ``"native"``
-            scheduler when it can be set up, otherwise falls back to
-            ``"software"`` with a warning (so a non-audio experiment still gets
-            the best available precision without knowing to ask). ``"native"``
-            forces the device-clock scheduler and raises if it is unavailable
-            (macOS Core Audio; Linux via direct ALSA with an explicit
-            ``device_id="hw:CARD,DEVICE"``; not on Windows). ``"software"``
-            forces the OS-mixer path (works everywhere, lower precision).
+            ``"native"`` (default) uses the device-clock scheduler on macOS
+            (Core Audio), Linux (direct ALSA; explicit ``device_id="hw:..."``
+            required), and Windows (WASAPI). Device errors are raised.
+            ``"auto"`` selects native when structurally available, otherwise
+            warns and falls back to ``"software"``. ``"software"`` forces
+            the OS-mixer path with lower timing precision.
         minimum_lead_time : float | None
             Minimum advance notice for explicit native deadlines; ignored by macOS
             immediate playback. ``None``
@@ -127,14 +126,12 @@ class Audio:
     def _resolve_auto_mode(device_id):
         """Pick 'native' when the device-clock scheduler can be set up, else 'software'.
 
-        Falls back to software only for structural reasons (no native build,
-        Windows, or Linux without a hardware device), with a warning that tells
+        Falls back to software only for structural reasons (no native build
+        or Linux without a hardware device), with a warning that tells
         the user how to get native precision. Never hides a real native failure.
         """
         if getattr(tachyaudio, "ScheduledOutputStream", None) is None:
             reason = "this tachyaudio build has no native scheduler"
-        elif sys.platform.startswith("win"):
-            reason = "native scheduling is not available on Windows"
         elif sys.platform.startswith("linux") and not str(device_id or "").startswith("hw:"):
             reason = ("native scheduling on Linux needs a hardware device, e.g. "
                       "device_id='hw:CARD=...,DEV=...' (it bypasses PulseAudio/PipeWire)")
@@ -208,9 +205,9 @@ class Audio:
         surface any playback failure. The device opens on the first ``play()``
         unless ``prepare()`` already warmed it.
 
-        In ``"native"`` mode both forms use the device-clock scheduler for the
+        In ``"native"`` mode both forms use the device-clock scheduler;
         ``when=None`` uses the next native callback on macOS (idle stream only);
-        Linux and older backends use a guarded future deadline. An explicit
+        Linux, Windows, and older backends use a guarded future deadline. An explicit
         ``when`` must be at least ``lead_time`` ahead. Up to 32 sounds can be queued ahead on one stream, back to back
         or overlapping; sounds that overlap in time are mixed (summed and
         clamped to [-1, 1]). The Future
@@ -263,14 +260,14 @@ class Audio:
                 raise
         return future
 
-    #: Submission margin for Linux and legacy deadline-based playback.
+    #: Submission margin for Linux, Windows, and legacy deadline-based playback.
     _NATIVE_ASAP_SAFETY = 0.005
 
     def _play_native(self, buffer, when):
         """Queue one stimulus on the shared native stream and track it.
 
         On macOS, ``when=None`` uses the next available native callback.
-        Older backends and Linux retain deadline-based immediate playback.
+        Linux, Windows, and older backends use deadline-based immediate playback.
         """
         future = Future()
         cancelled = threading.Event()

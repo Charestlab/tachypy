@@ -201,3 +201,58 @@ def test_native_play_now_uses_callback_without_python_deadline(native, monkeypat
         assert future.result(1) == ("timing", 42)
     finally:
         audio.close()
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
+@pytest.mark.parametrize("mode", [None, "auto", "native"])
+def test_native_selection_on_all_platforms(native, monkeypatch, platform, mode):
+    monkeypatch.setattr(audio_module.sys, "platform", platform)
+    options = {} if mode is None else {"timing_mode": mode}
+    device = "hw:0,0" if platform == "linux" else None
+    audio = Audio(sample_rate=48000, device_id=device, **options)
+    try:
+        assert audio.timing_mode == "native"
+        audio.prepare()
+        assert native[0].kwargs["device_id"] == device
+        if platform == "win32":
+            assert "latency" not in native[0].kwargs
+        future = audio.play(np.zeros(8), when=time.monotonic() + 1)
+        native[0].ready.add(1)
+        assert future.result(1) == ("timing", 1)
+    finally:
+        audio.close()
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_native_immediate_uses_guarded_deadline(native, monkeypatch, platform):
+    monkeypatch.setattr(audio_module.sys, "platform", platform)
+    audio = Audio(device_id="hw:0,0" if platform == "linux" else None)
+    try:
+        audio.prepare()
+        def unsupported_asap(data):
+            pytest.fail("schedule_asap is macOS-only")
+        native[0].schedule_asap = unsupported_asap
+        before = time.monotonic()
+        future = audio.play(np.zeros(8))
+        assert native[0].scheduled[1][0] >= before + native[0].lead_time
+        native[0].ready.add(1)
+        assert future.result(1) == ("timing", 1)
+    finally:
+        audio.close()
+
+
+def test_auto_linux_without_hardware_retains_software_fallback(native, monkeypatch):
+    monkeypatch.setattr(audio_module.sys, "platform", "linux")
+    monkeypatch.setattr(audio_module, "_AUTO_FALLBACK_WARNED", set())
+    with pytest.warns(RuntimeWarning, match="hardware device"):
+        assert Audio(timing_mode="auto").timing_mode == "software"
+    assert Audio().timing_mode == "native"
+
+
+def test_auto_legacy_build_retains_software_fallback(monkeypatch):
+    monkeypatch.setattr(audio_module, "tachyaudio", SimpleNamespace())
+    monkeypatch.setattr(audio_module, "_AUTO_FALLBACK_WARNED", set())
+    with pytest.warns(RuntimeWarning, match="no native scheduler"):
+        assert Audio(timing_mode="auto").timing_mode == "software"
+    with pytest.raises(RuntimeError, match="ScheduledOutputStream"):
+        Audio().prepare()

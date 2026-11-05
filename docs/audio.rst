@@ -3,7 +3,7 @@ Audio
 
 ``tachypy.Audio`` plays sound buffers through the ``tachyaudio`` backend. It is
 built so a non-audio experiment gets a dead-simple "play this now" call, while
-timing-critical stimuli can opt into microsecond-precise, device-clock onsets —
+timing-critical stimuli use scheduled device-clock onsets by default —
 with the same ``play()`` call. TachyPy no longer owns any audio backend itself;
 device handling, buffering and latency live in ``tachyaudio``.
 
@@ -35,16 +35,14 @@ Quick start
 Timing modes
 ------------
 
-``Audio`` picks the best timing automatically:
+``Audio`` uses native timing by default on every supported OS:
 
-- ``timing_mode="auto"`` (default): the precise ``native`` scheduler when it can be
-  set up, otherwise ``software`` with a one-time warning — so an experiment that is
-  not about audio still gets device-clock precision where possible, without having
-  to ask for it.
-- ``timing_mode="native"``: forces the device-clock scheduler and **raises** if it
-  is unavailable (macOS Core Audio; Linux via direct ALSA with
-  ``device_id="hw:..."``; not on Windows) — a hard error instead of a silent
-  downgrade, for when precise timing is required.
+- ``timing_mode="native"`` (default): device-clock scheduling through Core Audio
+  on macOS, direct ALSA on Linux, and WASAPI on Windows. Device errors raise;
+  Linux requires an explicit ``device_id="hw:..."``.
+- ``timing_mode="auto"``: selects native when structurally available, otherwise
+  falls back to software with a one-time warning (an older build without the
+  scheduler, or Linux without a hardware device). Device-open failures raise.
 - ``timing_mode="software"``: forces the OS-mixer path (works everywhere).
 
 Scheduled onset precision and immediate response time are different measurements.
@@ -78,7 +76,7 @@ Precise timing (native mode)
   ``lead_time``. ``play(data)`` without ``when`` is the convenient "play now" form:
   on macOS it uses the next available native callback, without a lead or 5 ms
   margin. It requires an idle stream; wait for the previous sound first.
-  Linux and older backends retain ``now + lead_time + 5 ms``.
+  Linux, Windows, and older backends retain ``now + lead_time + 5 ms``.
 - Up to 32 sounds queue ahead on one stream, back to back or overlapping.
   Sounds whose onsets overlap in time are mixed (summed and clamped to [-1, 1]).
 - ``play(data)`` with no ``when`` schedules at the soonest valid onset for you; an
@@ -121,10 +119,16 @@ Platform notes (native):
   never early, so placement error is 0–1 sample: 20.8 µs at 48 kHz, 5.2 µs at
   192 kHz — use the highest ``sample_rate`` your device supports when precision
   matters. See tachyaudio ``docs/linux-scheduling.md``.
-- **Windows** — native scheduling is unavailable; software mode works.
+- **Windows** — shared-mode, event-driven WASAPI. ``device_id=None`` uses the
+  default output; explicit ids come from ``tachyaudio.list_devices()``.
+  Use the endpoint's float32 mix sample rate (commonly 48 kHz); no resampling
+  is performed. Omit ``latency``: Windows uses its default shared-engine period.
+  When Python uses ``GetTickCount64()`` for ``time.monotonic()``, caller deadlines
+  are tick-quantized even though rendering uses QPC timestamps.
 
-Native scheduling needs a ``tachyaudio`` build newer than 0.2.0b2 (install from
-source until the next release); it fails explicitly on an older build.
+TachyPy requires ``tachyaudio>=0.2.0b4``, including Windows native scheduling.
+Compatible platform wheels install automatically from PyPI.
+Older builds without a native scheduler fail explicitly in the default mode.
 
 Reference
 ---------
@@ -147,8 +151,8 @@ Call                              Behavior
 - ``sample_rate``, ``channels`` — of your buffers; no resampling is done.
 - ``device_id`` — output device (see each mode's note); ``None`` is the default.
 - ``latency`` — software: the ``OutputStream`` buffer in seconds; native: the
-  device buffer in seconds (``None`` requests 1 ms on macOS; Linux chooses its buffer).
-- ``timing_mode`` — ``"auto"`` (default), ``"native"``, or ``"software"``.
+  device buffer in seconds (``None`` requests 1 ms on macOS; Linux chooses its buffer; omit on Windows).
+- ``timing_mode`` — ``"native"`` (default), ``"auto"``, or ``"software"``.
 - ``minimum_lead_time`` — native only; override the advance notice (``None``
   derives it from the device's measured output delay).
 - ``timeout`` — software: write/drain timeout; native: total completion timeout,
@@ -171,7 +175,7 @@ Install
 
 .. code-block:: bash
 
-   pip install tachypy          # add --pre if the tachyaudio pre-release is rejected
+   pip install tachypy
 
 Caveats and validation
 ----------------------
