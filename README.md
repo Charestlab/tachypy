@@ -68,8 +68,8 @@ pip install tachypy
 ```
 
 The base install includes GLFW, PyOpenGL, FreeType, HarfBuzz, pyserial, and
-TachyAudio. Pygame is no longer supported. TachyAudio is currently beta;
-TachyPy requires `tachyaudio>=0.2.0b4`, which includes native scheduling on
+TachyAudio. Pygame is no longer supported.
+TachyPy requires `tachyaudio>=0.2.0b4,<2`, which includes native scheduling on
 macOS, Linux, and Windows. Compatible platform wheels install automatically.
 
 Editable install for development:
@@ -77,7 +77,7 @@ Editable install for development:
 ```bash
 git clone https://github.com/Charestlab/tachypy.git
 cd tachypy
-pip install --pre -e .
+pip install -e .
 ```
 
 Optional extras:
@@ -114,7 +114,7 @@ for details and gifs.
 
 ### Audio dependency
 
-TachyPy audio uses `tachyaudio>=0.2.0b4`, with native timing by
+TachyPy audio uses `tachyaudio>=0.2.0b4,<2`, with native timing by
 default on macOS, Linux, and Windows. Linux requires an explicit ALSA hardware
 device; Windows requires the endpoint mix rate and uses its default buffer period. TachyPy no longer depends on
 `sounddevice` or requires users to install PortAudio separately. Hardware/audio
@@ -255,3 +255,6 @@ re-sync project webhooks from the RTD project settings.
 ## License
 
 MIT. See `LICENSE`.
+
+TachyPy 1.x follows semantic versioning for its documented runtime API.
+See [API stability and release validation](docs/api-stability.md).

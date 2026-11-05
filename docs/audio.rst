@@ -126,7 +126,7 @@ Platform notes (native):
   When Python uses ``GetTickCount64()`` for ``time.monotonic()``, caller deadlines
   are tick-quantized even though rendering uses QPC timestamps.
 
-TachyPy requires ``tachyaudio>=0.2.0b4``, including Windows native scheduling.
+TachyPy requires ``tachyaudio>=0.2.0b4,<2``, including Windows native scheduling.
 Compatible platform wheels install automatically from PyPI.
 Older builds without a native scheduler fail explicitly in the default mode.
 

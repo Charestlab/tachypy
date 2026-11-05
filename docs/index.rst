@@ -27,3 +27,4 @@ abstractions for display/input, and helper utilities for experiment workflows.
 
    api
    testing
+   api-stability
