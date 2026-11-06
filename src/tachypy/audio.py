@@ -23,6 +23,80 @@ else:
 #: Fallback reasons already reported in this process.
 _AUTO_FALLBACK_WARNED = set()
 
+#: GUI toolkits that run their own blocking event loop on the main thread.
+_GUI_EVENT_LOOP_MODULES = (
+    "tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "pygame", "pyglet", "gi",
+)
+#: Rendering-only plotting backends that never run a GUI event loop.
+_NONINTERACTIVE_RENDER_BACKENDS = {"agg", "pdf", "svg", "ps", "cairo", "template", "pgf"}
+_GUI_GUARD_WARNED = False
+
+
+def _gui_event_loop_in_use():
+    """Best-effort: is a GUI toolkit with its own main-thread event loop in use?
+
+    Generic across toolkits (detected by import). Plotting libraries that can run
+    either headless or windowed are resolved by their active backend so a
+    file-only, non-interactive configuration does not count.
+    """
+    plotting = sys.modules.get("matplotlib")
+    if plotting is not None:
+        try:
+            if plotting.get_backend().lower() not in _NONINTERACTIVE_RENDER_BACKENDS:
+                return True
+        except Exception:
+            pass
+    return any(name in sys.modules for name in _GUI_EVENT_LOOP_MODULES)
+
+
+def _warn_if_gui_event_loop():
+    """Warn once if a native stream is opened while a GUI event loop is in use.
+
+    Keeping a native device open across a blocking GUI call can destabilise the
+    macOS run loop. Toolkit-agnostic: it names no specific library.
+    """
+    global _GUI_GUARD_WARNED
+    if _GUI_GUARD_WARNED or not _gui_event_loop_in_use():
+        return
+    _GUI_GUARD_WARNED = True
+    warnings.warn(
+        "A GUI toolkit with its own event loop appears to be in use. Keeping a native "
+        "audio stream open across a blocking GUI call (a plot window, an application "
+        "main loop) can be unstable on macOS; close the stream before entering the GUI "
+        "loop and reopen it afterwards.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
+_BLUETOOTH_WARNED = False
+
+
+def _warn_if_bluetooth_output(stream):
+    """Warn once, and push a latency measurement, when a native stream runs on a
+    Bluetooth output. Its latency is high, variable and under-reported by the OS,
+    so onset timing is only approximate until the user calibrates ``latency_bias``.
+    """
+    global _BLUETOOTH_WARNED
+    if _BLUETOOTH_WARNED:
+        return
+    try:
+        transport = stream.status().get("transport")
+    except Exception:
+        return
+    if transport == "bluetooth":
+        _BLUETOOTH_WARNED = True
+        warnings.warn(
+            "Bluetooth output detected: native onset timing is only approximate (high, "
+            "variable latency the OS under-reports, plus a few ms of jitter). For precise "
+            "timing use a wired or built-in output. To use this device anyway, measure its "
+            "latency once (e.g. tachyaudio's examples/measure_coreaudio_loopback.py) and "
+            "pass latency_bias=<seconds> to Audio(...) to correct the systematic offset; "
+            "the jitter cannot be removed.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
 
 class Audio:
     """Schedule playback through :mod:`tachyaudio` while preserving TachyPy's API."""
@@ -39,6 +113,7 @@ class Audio:
         timeout=None,
         timing_mode="auto",
         minimum_lead_time=None,
+        latency_bias=None,
     ):
         """Initialize audio playback state.
 
@@ -112,6 +187,7 @@ class Audio:
             raise ValueError("native timing chooses its own period; omit block_size")
         self.timing_mode = timing_mode
         self.minimum_lead_time = minimum_lead_time
+        self.latency_bias = latency_bias
         if timeout is not None and (not math.isfinite(timeout) or timeout < 0):
             raise ValueError("timeout must be finite and nonnegative")
         self.is_playing = False
@@ -162,6 +238,8 @@ class Audio:
                 options["latency"] = 0.001
             if self.minimum_lead_time is not None:
                 options["minimum_lead_time"] = self.minimum_lead_time
+            if self.latency_bias is not None:
+                options["latency_bias"] = self.latency_bias
             return factory(
                 sample_rate=self.sample_rate,
                 channels=self.channels,
@@ -183,6 +261,8 @@ class Audio:
         Device errors are raised to the caller. Call ``close()`` when finished
         to release the retained stream.
         """
+        if self.timing_mode == "native":
+            _warn_if_gui_event_loop()
         with self._lock:
             if self._stopping:
                 raise RuntimeError("audio is stopping")
@@ -196,6 +276,48 @@ class Audio:
                     stream.close()
                     raise
                 self._stream = stream
+                if self.timing_mode == "native":
+                    _warn_if_bluetooth_output(stream)
+
+    def now(self):
+        """Return "now" on the clock that ``play(when=...)`` and ``play_after`` use.
+
+        This is the reference you build a precise ``when`` from, so you never have to
+        guess which clock applies. Use it to anchor several onsets to one instant::
+
+            t0 = audio.now()
+            audio.play(reference, when=t0 + 0.25)
+            audio.play(target, when=t0 + 0.25 + len(reference) / sample_rate)
+
+        It is always safe to call before or after ``prepare()`` — the clock is the
+        same (``time.monotonic``); ``prepare()`` only syncs the device *to* it.
+        """
+        return time.monotonic()
+
+    def play_after(self, data, seconds):
+        """Play ``data`` ``seconds`` from now, computed on the correct clock.
+
+        A convenience over ``play(data, when=self.now() + seconds)`` so callers never
+        touch ``time.monotonic()`` and the order of ``prepare()`` and the time read
+        cannot matter. Returns the same ``Future`` as :meth:`play`.
+
+        In native mode ``seconds`` must be at least the device's advance notice
+        (``lead_time``); if the stream is already open and ``seconds`` is too short,
+        a clear error is raised instead of the low-level scheduling error. Wireless
+        or HDMI outputs can need tens of milliseconds, so prefer a comfortable value.
+        """
+        if seconds is None or not math.isfinite(seconds):
+            raise ValueError("seconds must be a finite number")
+        stream = self._stream
+        if self.timing_mode == "native" and stream is not None:
+            lead = getattr(stream, "lead_time", None)
+            if lead is not None and seconds < lead:
+                raise ValueError(
+                    f"play_after({seconds:.3f}s) is shorter than this device's required "
+                    f"advance notice (lead_time={lead:.3f}s). Schedule further ahead, or "
+                    "use a shorter buffer / a lower-latency output."
+                )
+        return self.play(data, when=self.now() + seconds)
 
     def play(self, data, when=None):
         """Play a NumPy sound buffer, now or at an absolute monotonic time.
@@ -272,6 +394,7 @@ class Audio:
         On macOS, ``when=None`` uses the next available native callback.
         Older backends and Linux retain deadline-based immediate playback.
         """
+        _warn_if_gui_event_loop()
         future = Future()
         cancelled = threading.Event()
         with self._lock:
@@ -287,6 +410,7 @@ class Audio:
                         stream.close()
                         raise
                     self._stream = stream
+                    _warn_if_bluetooth_output(stream)
                 if when is None and sys.platform == "darwin" and callable(
                     getattr(stream, "schedule_asap", None)
                 ):
@@ -501,3 +625,28 @@ class Audio:
     def close(self):
         """Close audio resources by stopping playback."""
         self.stop()
+
+    def __enter__(self):
+        """Warm the device on entry so the body can play immediately and
+        precisely; the stream is released on exit, scoping it to the block."""
+        self.prepare()
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def __del__(self):
+        """Release the native stream if the caller forgot to close().
+
+        Defensive and best-effort: it must never raise during interpreter
+        teardown, and it closes the retained stream directly (without touching
+        locks or joining threads) so a live Core Audio device cannot outlast the
+        object into a GUI event loop or interpreter shutdown.
+        """
+        stream = getattr(self, "_stream", None)
+        if stream is not None:
+            try:
+                stream.close()
+            except Exception:
+                pass
