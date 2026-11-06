@@ -1,5 +1,6 @@
 import time
 from concurrent.futures import CancelledError
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import numpy as np
@@ -256,3 +257,40 @@ def test_auto_legacy_build_retains_software_fallback(monkeypatch):
         assert Audio(timing_mode="auto").timing_mode == "software"
     with pytest.raises(RuntimeError, match="ScheduledOutputStream"):
         Audio().prepare()
+
+
+@pytest.mark.parametrize("prepared", [False, True])
+def test_play_after_anchors_delay_after_device_start(native, monkeypatch, prepared):
+    clock = [100.0]
+
+    def start(self):
+        clock[0] += 2.0
+
+    def schedule(self, data, *, when):
+        assert when - clock[0] >= self.lead_time
+        self.scheduled[1] = (when, data)
+        return 1
+
+    monkeypatch.setattr(ScheduledStream, "start", start)
+    monkeypatch.setattr(Audio, "now", lambda self: clock[0])
+    monkeypatch.setattr(ScheduledStream, "schedule", schedule)
+    with Audio(timing_mode="native") if prepared else _unprepared_audio() as audio:
+        future = audio.play_after(np.zeros(8), 0.25)
+        assert native[0].scheduled[1][0] == 102.25
+        native[0].ready.add(1)
+        assert future.result(1) == ("timing", 1)
+
+
+@contextmanager
+def _unprepared_audio():
+    audio = Audio(timing_mode="native")
+    try:
+        yield audio
+    finally:
+        audio.close()
+
+
+def test_play_after_rejects_short_delay_on_first_play(native):
+    with pytest.raises(ValueError, match="advance notice"):
+        Audio(timing_mode="native").play_after(np.zeros(8), 0.01)
+    assert native[0].closed

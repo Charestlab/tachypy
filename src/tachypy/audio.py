@@ -23,6 +23,34 @@ else:
 #: Fallback reasons already reported in this process.
 _AUTO_FALLBACK_WARNED = set()
 
+_BLUETOOTH_WARNED = False
+
+
+def _warn_if_bluetooth_output(stream):
+    """Warn once, and push a latency measurement, when a native stream runs on a
+    Bluetooth output. Its latency is high, variable and under-reported by the OS,
+    so onset timing is only approximate until the user calibrates ``latency_bias``.
+    """
+    global _BLUETOOTH_WARNED
+    if _BLUETOOTH_WARNED:
+        return
+    try:
+        transport = stream.status().get("transport")
+    except Exception:
+        return
+    if transport == "bluetooth":
+        _BLUETOOTH_WARNED = True
+        warnings.warn(
+            "Bluetooth output detected: native onset timing is only approximate (high, "
+            "variable latency the OS under-reports, plus a few ms of jitter). For precise "
+            "timing use a wired or built-in output. To use this device anyway, measure its "
+            "latency once (e.g. tachyaudio's examples/measure_coreaudio_loopback.py) and "
+            "pass latency_bias=<seconds> to Audio(...) to correct the systematic offset; "
+            "the jitter cannot be removed.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
 
 class Audio:
     """Schedule playback through :mod:`tachyaudio` while preserving TachyPy's API."""
@@ -39,6 +67,7 @@ class Audio:
         timeout=None,
         timing_mode="native",
         minimum_lead_time=None,
+        latency_bias=None,
     ):
         """Initialize audio playback state.
 
@@ -111,6 +140,7 @@ class Audio:
             raise ValueError("native timing chooses its own period; omit block_size")
         self.timing_mode = timing_mode
         self.minimum_lead_time = minimum_lead_time
+        self.latency_bias = latency_bias
         if timeout is not None and (not math.isfinite(timeout) or timeout < 0):
             raise ValueError("timeout must be finite and nonnegative")
         self.is_playing = False
@@ -159,6 +189,8 @@ class Audio:
                 options["latency"] = 0.001
             if self.minimum_lead_time is not None:
                 options["minimum_lead_time"] = self.minimum_lead_time
+            if self.latency_bias is not None:
+                options["latency_bias"] = self.latency_bias
             return factory(
                 sample_rate=self.sample_rate,
                 channels=self.channels,
@@ -193,6 +225,36 @@ class Audio:
                     stream.close()
                     raise
                 self._stream = stream
+                if self.timing_mode == "native":
+                    _warn_if_bluetooth_output(stream)
+
+    def now(self):
+        """Return "now" on the clock that ``play(when=...)`` and ``play_after`` use.
+
+        This is the reference you build a precise ``when`` from, so you never have to
+        guess which clock applies. Use it to anchor several onsets to one instant::
+
+            t0 = audio.now()
+            audio.play(reference, when=t0 + 0.25)
+            audio.play(target, when=t0 + 0.25 + len(reference) / sample_rate)
+
+        It is always safe to call before or after ``prepare()`` — the clock is the
+        same (``time.monotonic``); ``prepare()`` only syncs the device *to* it.
+        """
+        return time.monotonic()
+
+    def play_after(self, data, seconds):
+        """Play ``data`` ``seconds`` from now, computed on the correct clock.
+
+        In native mode the delay starts after the device is ready. It must
+        leave enough advance notice for the device to queue the sound. Use
+        play(when=...) instead to preserve an absolute trial deadline.
+        """
+        if seconds is None or not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("seconds must be finite and nonnegative")
+        if self.timing_mode == "native":
+            return self._play_native(self._prepare_buffer(data), None, delay=seconds)
+        return self.play(data, when=self.now() + seconds)
 
     def play(self, data, when=None):
         """Play a NumPy sound buffer, now or at an absolute monotonic time.
@@ -263,11 +325,11 @@ class Audio:
     #: Submission margin for Linux, Windows, and legacy deadline-based playback.
     _NATIVE_ASAP_SAFETY = 0.005
 
-    def _play_native(self, buffer, when):
+    def _play_native(self, buffer, when, *, delay=None):
         """Queue one stimulus on the shared native stream and track it.
 
         On macOS, ``when=None`` uses the next available native callback.
-        Linux, Windows, and older backends use deadline-based immediate playback.
+        Older backends and Linux retain deadline-based immediate playback.
         """
         future = Future()
         cancelled = threading.Event()
@@ -284,6 +346,15 @@ class Audio:
                         stream.close()
                         raise
                     self._stream = stream
+                    _warn_if_bluetooth_output(stream)
+                if delay is not None:
+                    lead = stream.lead_time
+                    if delay <= lead:
+                        raise ValueError(
+                            f"play_after({delay:.3f}s) must exceed this device's "
+                            f"required advance notice (lead_time={lead:.3f}s)"
+                        )
+                    when = self.now() + delay
                 if when is None and sys.platform == "darwin" and callable(
                     getattr(stream, "schedule_asap", None)
                 ):
@@ -498,3 +569,13 @@ class Audio:
     def close(self):
         """Close audio resources by stopping playback."""
         self.stop()
+
+    def __enter__(self):
+        """Warm the device on entry so the body can play immediately and
+        precisely; the stream is released on exit, scoping it to the block."""
+        self.prepare()
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
