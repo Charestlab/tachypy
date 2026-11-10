@@ -221,12 +221,12 @@ class Audio:
                     stream.start()
                     if self.timing_mode == "software":
                         stream.drain(timeout=0)
+                    if self.timing_mode == "native":
+                        _warn_if_bluetooth_output(stream)
                 except BaseException:
                     stream.close()
                     raise
                 self._stream = stream
-                if self.timing_mode == "native":
-                    _warn_if_bluetooth_output(stream)
 
     def now(self):
         """Return "now" on the clock that ``play(when=...)`` and ``play_after`` use.
@@ -244,7 +244,7 @@ class Audio:
         return time.monotonic()
 
     def play_after(self, data, seconds):
-        """Play ``data`` ``seconds`` from now, computed on the correct clock.
+        """Schedule playback after a delay on the playback clock.
 
         In native mode the delay starts after the device is ready. It must
         leave enough advance notice for the device to queue the sound. Use
@@ -329,7 +329,7 @@ class Audio:
         """Queue one stimulus on the shared native stream and track it.
 
         On macOS, ``when=None`` uses the next available native callback.
-        Older backends and Linux retain deadline-based immediate playback.
+        Linux, Windows, and older backends use deadline-based immediate playback.
         """
         future = Future()
         cancelled = threading.Event()

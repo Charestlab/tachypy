@@ -8,6 +8,9 @@ grant it in System Settings → Privacy & Security → Microphone.
 
 from __future__ import annotations
 
+import math
+import operator
+
 import numpy as np
 
 try:
@@ -71,7 +74,11 @@ class Microphone:
         """Open the device and begin capturing into the buffer."""
         self._open()
         if not self._started:
-            self._stream.start()
+            try:
+                self._stream.start()
+            except BaseException:
+                self.close()
+                raise
             self._started = True
 
     def _to_array(self, buffer):
@@ -85,9 +92,10 @@ class Microphone:
 
         Shape ``(n,)`` for mono, ``(n, channels)`` otherwise.
         """
-        self.start()
+        frames = operator.index(frames)
         if frames < 1:
             raise ValueError("frames must be positive")
+        self.start()
         return self._to_array(self._stream.read(frames))
 
     def read_exactly(self, frames, timeout=None):
@@ -95,9 +103,10 @@ class Microphone:
 
         Raises ``TimeoutError`` if they are not captured before ``timeout``.
         """
-        self.start()
+        frames = operator.index(frames)
         if frames < 1:
             raise ValueError("frames must be positive")
+        self.start()
         return self._to_array(self._stream.read_exactly(frames, timeout=timeout))
 
     def record(self, seconds, timeout=None):
@@ -107,7 +116,9 @@ class Microphone:
         shape ``(N,)`` for mono or ``(N, channels)`` otherwise. Buffered input from
         before the call is discarded, so the clip starts at the call.
         """
-        frames = int(round(seconds * self.sample_rate))
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("seconds must be finite and positive")
+        frames = round(seconds * self.sample_rate)
         if frames < 1:
             raise ValueError("seconds must capture at least one frame")
         self.start()

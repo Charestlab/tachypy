@@ -193,7 +193,7 @@ Call                              Behavior
 - ``timing_mode`` — ``"native"`` (default), ``"auto"``, or ``"software"``.
 - ``minimum_lead_time`` — native only; override the advance notice (``None``
   derives it from the device's measured output delay).
-- ``latency_bias`` — native, macOS only; seconds added to the onset compensation to
+- ``latency_bias`` — native, macOS only; requires a TachyAudio build that supports this option. Seconds added to the onset compensation to
   calibrate a device whose true latency the HAL misreports (see `Bluetooth / wireless
   outputs`_). ``None`` applies no bias.
 - ``timeout`` — software: write/drain timeout; native: total completion timeout,

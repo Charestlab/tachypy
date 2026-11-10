@@ -294,3 +294,30 @@ def test_play_after_rejects_short_delay_on_first_play(native):
     with pytest.raises(ValueError, match="advance notice"):
         Audio(timing_mode="native").play_after(np.zeros(8), 0.01)
     assert native[0].closed
+
+
+@pytest.mark.parametrize("read_before_prepare", [False, True])
+def test_absolute_onset_is_unchanged_by_prepare(native, read_before_prepare):
+    audio = Audio(timing_mode="native")
+    try:
+        if read_before_prepare:
+            target = audio.now() + 1
+        audio.prepare()
+        if not read_before_prepare:
+            target = audio.now() + 1
+        future = audio.play(np.zeros(8), when=target)
+        assert native[0].scheduled[1][0] == target
+        native[0].ready.add(1)
+        assert future.result(1) == ("timing", 1)
+    finally:
+        audio.close()
+
+
+def test_failed_context_entry_releases_stream(native, monkeypatch):
+    def start(self):
+        raise RuntimeError("clock never became ready")
+
+    monkeypatch.setattr(ScheduledStream, "start", start)
+    with pytest.raises(RuntimeError, match="clock never became ready"), Audio(timing_mode="native"):
+        pytest.fail("the context body cannot run after failed startup")
+    assert native[0].closed
