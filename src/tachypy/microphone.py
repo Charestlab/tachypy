@@ -51,8 +51,10 @@ class Microphone:
             raise RuntimeError(
                 f"tachyaudio is required for microphone capture: {_TACHYAUDIO_IMPORT_ERROR}"
             )
-        self.sample_rate = sample_rate
-        self.channels = channels
+        self.sample_rate = operator.index(sample_rate)
+        self.channels = operator.index(channels)
+        if self.sample_rate < 1 or self.channels < 1:
+            raise ValueError("sample_rate and channels must be positive")
         self.device_id = device_id
         self.latency = latency
         self.block_size = block_size

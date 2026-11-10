@@ -321,3 +321,18 @@ def test_failed_context_entry_releases_stream(native, monkeypatch):
     with pytest.raises(RuntimeError, match="clock never became ready"), Audio(timing_mode="native"):
         pytest.fail("the context body cannot run after failed startup")
     assert native[0].closed
+
+
+@pytest.mark.parametrize("platform,mode", [("linux", "native"), ("darwin", "software")])
+def test_latency_bias_requires_native_macos(native, monkeypatch, platform, mode):
+    monkeypatch.setattr(audio_module, "sys", SimpleNamespace(platform=platform))
+    with pytest.raises(ValueError, match="native timing on macOS"):
+        Audio(timing_mode=mode, latency_bias=0.01)
+    assert not native
+
+
+def test_latency_bias_reports_old_audio_dependency(native, monkeypatch):
+    monkeypatch.setattr(audio_module, "sys", SimpleNamespace(platform="darwin"))
+    with pytest.raises(RuntimeError, match="TachyAudio 1.1.0"), Audio(latency_bias=0.01):
+        pytest.fail("the legacy scheduler cannot calibrate latency")
+    assert not native

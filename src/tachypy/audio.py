@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import os
 import sys
@@ -27,7 +28,7 @@ _BLUETOOTH_WARNED = False
 
 
 def _warn_if_bluetooth_output(stream):
-    """Warn once, and push a latency measurement, when a native stream runs on a
+    """Warn once when a native stream runs on a
     Bluetooth output. Its latency is high, variable and under-reported by the OS,
     so onset timing is only approximate until the user calibrates ``latency_bias``.
     """
@@ -138,6 +139,11 @@ class Audio:
             timing_mode = self._resolve_auto_mode(device_id)
         if timing_mode == "native" and block_size is not None:
             raise ValueError("native timing chooses its own period; omit block_size")
+        if latency_bias is not None:
+            if timing_mode != "native" or sys.platform != "darwin":
+                raise ValueError("latency_bias requires native timing on macOS")
+            if not math.isfinite(latency_bias):
+                raise ValueError("latency_bias must be finite")
         self.timing_mode = timing_mode
         self.minimum_lead_time = minimum_lead_time
         self.latency_bias = latency_bias
@@ -190,6 +196,8 @@ class Audio:
             if self.minimum_lead_time is not None:
                 options["minimum_lead_time"] = self.minimum_lead_time
             if self.latency_bias is not None:
+                if "latency_bias" not in inspect.signature(factory).parameters:
+                    raise RuntimeError("latency_bias requires TachyAudio 1.1.0 or newer")
                 options["latency_bias"] = self.latency_bias
             return factory(
                 sample_rate=self.sample_rate,

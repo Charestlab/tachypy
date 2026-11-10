@@ -68,3 +68,10 @@ def test_partial_mono_read_stop_and_restart(device):
     mic.close()
     mic.close()
     stream.close.assert_called_once()
+
+
+@pytest.mark.parametrize("options", [{"sample_rate": 0}, {"channels": -1}])
+def test_invalid_capture_config_is_rejected_at_construction(options, device):
+    with pytest.raises(ValueError, match="positive"):
+        capture.Microphone(**options)
+    device.assert_not_called()
