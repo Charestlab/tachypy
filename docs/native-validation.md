@@ -64,7 +64,8 @@ and check that the prompt comes back.
         plt.plot([0, 1])
         plt.show(block=True)
 
-Repeat with the plot and show calls outside the audio context. The second run
-closes the stream before the GUI loop starts. If the prompt hangs, capture the
+Repeat with the plot and show calls outside the audio context, then with no
+audio imports or calls at all. A figure-close hang can occur even without an
+audio stream. If the prompt hangs, capture the
 Matplotlib backend, IPython and Matplotlib versions, and the audio device. A
 timeout in figure close alone does not establish that Python's GIL is held.
