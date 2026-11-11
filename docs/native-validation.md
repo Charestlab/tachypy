@@ -46,3 +46,41 @@ These residuals are sample-grid calculations, not independently measured timing
 accuracy. No electrical loopback, acoustic measurements, or paired PsychPortAudio
 measurements have been performed. No Windows/Linux scheduled path was tested or
 implemented in this historical validation. See the companion tachyaudio `docs/electrical-loopback.md` protocol.
+
+### Check IPython figure close on macOS
+
+In terminal IPython, run the following with a local Core Audio output that
+supports 48000 Hz. The samples are silent. Close the window while it is visible
+and check that the prompt comes back.
+
+    %matplotlib macosx
+
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from tachypy import Audio
+
+    with Audio(sample_rate=48000, channels=2) as audio:
+        audio.play(np.zeros((96000, 2), dtype=np.float32))
+        plt.plot([0, 1])
+        plt.show(block=True)
+
+Repeat with the plot and show calls outside the audio context, then with no
+audio imports or calls at all. A figure-close hang can occur even without an
+audio stream. If the prompt hangs, capture the
+Matplotlib backend, IPython and Matplotlib versions, and the audio device. A
+timeout in figure close alone does not establish that Python's GIL is held.
+
+To work around the hang, install PyQt6 in the same environment as IPython,
+then start a fresh terminal IPython session and select Qt before importing
+pyplot or opening a figure:
+
+    %matplotlib qt
+
+Keep plotting calls on the main thread. If a plot only needs to be saved to a
+file, use the noninteractive Agg backend instead of calling show.
+
+In a macOS 26.5.1 test with Matplotlib 3.11.2 and IPython 9.18.1, the
+MacOSX backend could stay inside its main loop after the last figure closed.
+The same symptom occurred with no audio imported, and another Python thread
+continued running while the prompt was stuck. Qt avoided the hang in the
+same test. No change to the audio scheduler is needed to use this workaround.

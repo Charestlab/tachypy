@@ -77,6 +77,16 @@ Precise timing (native mode)
   on macOS it uses the next available native callback, without a lead or 5 ms
   margin. It requires an idle stream; wait for the previous sound first.
   Linux, Windows, and older backends retain ``now + lead_time + 5 ms``.
+- **Simplest precise form:** ``play_after(data, seconds)`` schedules playback after the requested delay. In native mode, the delay starts once
+  the device is ready; allow more than the device lead time. To align several sounds to one instant, read it once with
+  ``now()``::
+
+     t0 = audio.now()
+     audio.play(reference, when=t0 + 0.25)
+     audio.play(target, when=t0 + 0.25 + len(reference) / sample_rate)
+
+  ``now()`` returns the exact clock ``when=`` expects; ``prepare()`` only syncs the
+  device to it, so calling ``now()`` before or after ``prepare()`` is equivalent.
 - Up to 32 sounds queue ahead on one stream, back to back or overlapping.
   Sounds whose onsets overlap in time are mixed (summed and clamped to [-1, 1]).
 - ``play(data)`` with no ``when`` schedules at the soonest valid onset for you; an
@@ -86,6 +96,32 @@ Precise timing (native mode)
 - Each Future returns a ``ScheduledTiming`` (device-clock estimates, not acoustic
   measurements). Cancel with ``stop()``, not ``Future.cancel()``; samples already
   handed to the device cannot be recalled.
+
+The device clock and ``prepare()``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To place an onset at a ``time.monotonic()`` instant, native mode must know how the
+Python clock maps to the **audio hardware clock** — the two drift apart.
+``prepare()`` (and the first ``play()`` if you skip it) opens the device, starts it,
+and waits briefly for the hardware to deliver its first timing callbacks, which
+establishes that mapping. **This short wait is the synchronization; it is required,
+not a delay to avoid.** Do it once at setup so it is off the timing-critical path.
+
+Native mode adapts this wait to the output: **wireless routes (Bluetooth, AirPods,
+AirPlay) are given up to ~10 s** to spin up, wired/built-in outputs only ~2 s (a
+healthy device returns the moment its first callbacks arrive, so this costs nothing
+in practice). ``prepare()`` only raises ``Core Audio clock did not become ready;
+close and reopen`` if the device still produced no clock in that window — i.e. it is
+genuinely stuck or mid-handoff. If you hit it:
+
+- Retry ``prepare()`` once — a transitioning Bluetooth device usually settles.
+- Or pass ``device_id="BuiltInSpeakerDevice"`` (the most reliable clock source).
+- Make sure nothing else is reconfiguring the default device at that moment.
+
+Keep interactive plotting on the main thread. Audio futures normally complete on
+playback workers, so do not call ``plt.show()`` or update GUI widgets from a future
+callback. For plots shown after a trial, wait for playback and leave the
+``with Audio(...) as audio:`` block before showing the figure.
 
 For the fastest onset your machine can sustain without glitches, measure it once at
 setup with tachyaudio's **silent** probe and pass the result:
@@ -138,6 +174,8 @@ Call                              Behavior
 ================================  ============================================================
 ``play(data)``                    Play now; returns a ``Future``.
 ``play(data, when=t)``            Play with the onset at monotonic time ``t``.
+``play_after(data, seconds)``     Play ``seconds`` from now (clock handled for you); returns a ``Future``.
+``now()``                         "Now" on the clock ``when=`` uses; anchor several onsets to one instant.
 ``wait(timeout=None)``            Wait for the most recent sound; re-raises its failure.
 ``prepare()``                     Open and warm the device ahead of the first sound.
 ``stop()``                        Cancel all pending/active sounds; the instance stays usable.
@@ -155,9 +193,38 @@ Call                              Behavior
 - ``timing_mode`` — ``"native"`` (default), ``"auto"``, or ``"software"``.
 - ``minimum_lead_time`` — native only; override the advance notice (``None``
   derives it from the device's measured output delay).
+- ``latency_bias`` — native, macOS only; requires a TachyAudio build that supports this option. Seconds added to the onset compensation to
+  calibrate a device whose true latency the HAL misreports (see `Bluetooth / wireless
+  outputs`_). ``None`` applies no bias.
 - ``timeout`` — software: write/drain timeout; native: total completion timeout,
   including the wait until the scheduled onset.
 - ``block_size`` — software only; rejected in native mode.
+
+Bluetooth / wireless outputs
+----------------------------
+
+Bluetooth (AirPods, wireless headphones) and AirPlay **cannot give precise acoustic
+onset timing**, because the sink's jitter buffer adds a large, variable latency that
+the operating system does not fully report. For anything timing-critical (interaural
+delays, audio–visual sync, reaction-time onsets), use a **wired or built-in** output.
+
+If you must use Bluetooth, you can get the **mean** onset accurate — the residual
+jitter stays — by calibrating the systematic offset:
+
+1. Keep the stream **output-only** (do not open the microphone; that drops AirPods
+   into low-quality hands-free mode). ``Audio`` already opens output only.
+2. Measure your device's true delay once (an acoustic loopback, e.g. tachyaudio's
+   ``examples/measure_coreaudio_loopback.py``, or a known reference), then pass the
+   extra latency the OS under-reported as ``latency_bias``:
+
+   .. code-block:: python
+
+      # measured true latency − reported presentation_latency_us ≈ 80 ms, say
+      audio = Audio(timing_mode="native", device_id="<airpods id>", latency_bias=0.080)
+
+Native mode already tracks the device's clock drift per callback, so within one
+connection a calibrated bias holds reasonably well; reconnecting the device can
+change the offset, so re-check after a reconnect.
 
 Errors and lifecycle
 --------------------
@@ -169,6 +236,32 @@ are stored in ``audio.last_error``; the failed stream is closed and the next
 stimulus after its deadline could invalidate a trial. ``stop()`` cancels
 everything (those Futures raise ``concurrent.futures.CancelledError``) and the
 ``Audio`` instance can be reused afterwards.
+
+Recording from the microphone
+-----------------------------
+
+``tachypy.Microphone`` captures audio as NumPy ``float32`` arrays (backed by
+``tachyaudio``'s input stream). Open, record, close — same style as ``Audio``:
+
+.. code-block:: python
+
+   from tachypy import Microphone
+
+   with Microphone(sample_rate=48000, channels=1) as mic:
+       clip = mic.record(2.0)          # blocks 2 s; float32 array, shape (96000,)
+   # device released on exit
+
+- ``record(seconds)`` discards anything buffered, then captures exactly
+  ``round(seconds * sample_rate)`` frames and returns them — shape ``(N,)`` for mono,
+  ``(N, channels)`` otherwise.
+- To stream instead, ``start()`` then ``read(frames)`` (up to ``frames`` already
+  captured) or ``read_exactly(frames, timeout=...)`` (waits), then ``stop()`` /
+  ``close()``. ``flush()`` drops buffered input.
+- ``Microphone(...)`` takes ``sample_rate``, ``channels``, and keyword-only
+  ``device_id`` (``None`` = default input), ``latency`` and ``block_size``.
+- **macOS:** the first capture triggers the microphone permission prompt. Grant it in
+  System Settings → Privacy & Security → Microphone (if denied, you get silence or an
+  error). The ``tachyaudio-audio-report`` command also checks capture permissions.
 
 Install
 -------
